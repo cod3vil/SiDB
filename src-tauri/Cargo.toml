@@ -1,0 +1,78 @@
+[package]
+name = "dblite"
+version = "0.1.0"
+description = "轻量级跨平台数据库客户端"
+authors = ["DBLite"]
+edition = "2021"
+rust-version = "1.75"
+
+# The library is what Tauri links against; `dblite_lib` avoids a name clash with the bin.
+[lib]
+name = "dblite_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+async-trait = "0.1"
+futures = "0.3"
+
+# Database drivers — NO `any` feature; each adapter is independent.
+sqlx = { version = "0.8", default-features = false, features = [
+  "runtime-tokio",
+  "mysql",
+  "postgres",
+  "sqlite",
+  "chrono",
+  "rust_decimal",
+  "json",
+  "uuid",
+] }
+
+# SSH tunnel — pure Rust, avoids libssh2 cross-compile pain.
+russh = "0.45"
+russh-keys = "0.45"
+
+# System keychain
+keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service"] }
+
+# Serialization / errors / logging / ids
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "1"
+anyhow = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-appender = "0.2"
+uuid = { version = "1", features = ["v4", "serde"] }
+dashmap = "6"
+chrono = { version = "0.4", features = ["serde"] }
+rust_decimal = "1"
+once_cell = "1"
+dirs = "5"
+
+# AI HTTP (one-shot test connectivity in phase 1; full use in phase 2)
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["full", "test-util"] }
+testcontainers = "0.23"
+testcontainers-modules = { version = "0.11", features = ["mysql", "postgres"] }
+tempfile = "3"
+
+[features]
+# Default Tauri custom protocol on release; devtools otherwise.
+custom-protocol = ["tauri/custom-protocol"]
+
+[profile.release]
+panic = "abort"
+codegen-units = 1
+lto = true
+opt-level = "s"
+strip = true

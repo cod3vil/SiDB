@@ -1,0 +1,157 @@
+//! 适配器层（TDD §4）。
+//!
+//! **数据库方言差异（系统表查询、引号、占位符、类型映射）只允许存在于本模块内部。**
+//! services 与前端不得出现任何 `if mysql/pg/sqlite` 分支，差异统一经 [`DbCapabilities`] 表达。
+
+pub mod mysql;
+pub mod postgres;
+pub mod sqlite;
+pub mod type_map;
+
+use crate::models::*;
+use async_trait::async_trait;
+use serde::Serialize;
+
+#[derive(Debug, Clone, Serialize)]
+pub struct DbCapabilities {
+    pub supports_ssh: bool,
+    pub supports_cancel: bool,
+    /// PG true。
+    pub supports_schemas: bool,
+    /// SQLite false。
+    pub supports_multi_database: bool,
+    pub param_style: ParamStyle,
+    /// `` ` `` 或 `"`
+    pub quote_char: char,
+    /// SQLite true。
+    pub has_rowid_fallback: bool,
+}
+
+impl DbCapabilities {
+    /// 标识符引号化：来源必须是元数据（非前端拼接），并拒绝包含引号字符的标识符
+    /// （CLAUDE.md 铁律 #3、TDD §6.3）。
+    pub fn quote_ident(&self, ident: &str) -> Result<String> {
+        if ident.contains(self.quote_char) || ident.contains('\0') {
+            return Err(AppError::Internal(format!(
+                "illegal identifier contains quote char: {ident}"
+            )));
+        }
+        Ok(format!("{0}{1}{0}", self.quote_char, ident))
+    }
+
+    /// 引号化带 schema 的表名，如 `"public"."t"` 或 `` `db`.`t` ``。
+    pub fn quote_table(&self, t: &TableRef) -> Result<String> {
+        let mut parts = Vec::new();
+        if self.supports_schemas {
+            if let Some(s) = &t.schema {
+                parts.push(self.quote_ident(s)?);
+            }
+        } else if self.supports_multi_database {
+            if let Some(db) = &t.database {
+                parts.push(self.quote_ident(db)?);
+            }
+        }
+        parts.push(self.quote_ident(&t.name)?);
+        Ok(parts.join("."))
+    }
+}
+
+#[async_trait]
+pub trait DbAdapter: Send + Sync {
+    fn capabilities(&self) -> &DbCapabilities;
+
+    async fn connect(&mut self, target: &ConnTarget) -> Result<()>;
+    async fn disconnect(&mut self);
+    async fn ping(&self) -> Result<()>;
+
+    /// 查询：`query_id` 用于取消登记。
+    async fn query(&self, query_id: &str, sql: &str, params: &[Value]) -> Result<RawResultSet>;
+    async fn execute(&self, query_id: &str, sql: &str, params: &[Value]) -> Result<ExecResult>;
+    async fn cancel(&self, query_id: &str) -> Result<()>;
+
+    /// 事务化批量执行（数据编辑提交用）。任一失败全部回滚。
+    async fn execute_in_transaction(
+        &self,
+        stmts: Vec<(String, Vec<Value>)>,
+    ) -> Result<Vec<ExecResult>>;
+
+    // ---- 元数据 ----
+    async fn list_databases(&self) -> Result<Vec<DatabaseInfo>>;
+    /// 非 PG 返回空。
+    async fn list_schemas(&self, db: &str) -> Result<Vec<String>>;
+    async fn list_tables(&self, db: &str, schema: Option<&str>) -> Result<Vec<TableInfo>>;
+    async fn table_schema(&self, t: &TableRef) -> Result<TableSchema>;
+    async fn table_ddl(&self, t: &TableRef) -> Result<String>;
+    /// 行定位列：主键 → 唯一非空索引 → rowid（仅 SQLite）→ None。
+    async fn row_identifier(&self, t: &TableRef) -> Result<Option<Vec<String>>>;
+}
+
+/// 工厂（TDD §4.1）。
+pub fn create_adapter(kind: DbKind) -> Box<dyn DbAdapter> {
+    match kind {
+        DbKind::Mysql => Box::new(mysql::MySqlAdapter::new()),
+        DbKind::Postgres => Box::new(postgres::PostgresAdapter::new()),
+        DbKind::Sqlite => Box::new(sqlite::SqliteAdapter::new()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn pg_caps() -> DbCapabilities {
+        DbCapabilities {
+            supports_ssh: true,
+            supports_cancel: true,
+            supports_schemas: true,
+            supports_multi_database: true,
+            param_style: ParamStyle::Dollar,
+            quote_char: '"',
+            has_rowid_fallback: false,
+        }
+    }
+
+    fn mysql_caps() -> DbCapabilities {
+        DbCapabilities {
+            supports_ssh: true,
+            supports_cancel: true,
+            supports_schemas: false,
+            supports_multi_database: true,
+            param_style: ParamStyle::Question,
+            quote_char: '`',
+            has_rowid_fallback: false,
+        }
+    }
+
+    #[test]
+    fn quote_ident_wraps() {
+        assert_eq!(pg_caps().quote_ident("col").unwrap(), r#""col""#);
+        assert_eq!(mysql_caps().quote_ident("col").unwrap(), "`col`");
+    }
+
+    #[test]
+    fn quote_ident_rejects_embedded_quote() {
+        assert!(pg_caps().quote_ident(r#"a"b"#).is_err());
+        assert!(mysql_caps().quote_ident("a`b").is_err());
+    }
+
+    #[test]
+    fn quote_table_pg_uses_schema() {
+        let t = TableRef {
+            database: Some("d".into()),
+            schema: Some("public".into()),
+            name: "users".into(),
+        };
+        assert_eq!(pg_caps().quote_table(&t).unwrap(), r#""public"."users""#);
+    }
+
+    #[test]
+    fn quote_table_mysql_uses_database() {
+        let t = TableRef {
+            database: Some("shop".into()),
+            schema: None,
+            name: "orders".into(),
+        };
+        assert_eq!(mysql_caps().quote_table(&t).unwrap(), "`shop`.`orders`");
+    }
+}

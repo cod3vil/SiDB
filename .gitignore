@@ -1,0 +1,33 @@
+# Node
+node_modules/
+dist/
+dist-ssr/
+*.local
+.pnpm-store/
+
+# Rust / Tauri
+src-tauri/target/
+**/*.rs.bk
+Cargo.lock.orig
+
+# Build output
+/build/
+
+# Editor
+.vscode/*
+!.vscode/extensions.json
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+.DS_Store
+
+# Env / secrets
+.env
+.env.*
+!.env.example
+
+# App runtime data (created at runtime under user home; never commit)
+.dblite/
