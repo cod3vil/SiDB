@@ -12,7 +12,6 @@ use async_trait::async_trait;
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions, SqliteRow};
 use sqlx::{Column, Row, TypeInfo, ValueRef};
 use std::str::FromStr;
-use std::time::Instant;
 
 pub struct SqliteAdapter {
     caps: DbCapabilities,

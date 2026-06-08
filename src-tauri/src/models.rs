@@ -345,9 +345,9 @@ mod tests {
         ];
         for (v, expected) in cases {
             let s = serde_json::to_string(&v).unwrap();
-            assert_eq!(s, expected, "serialize {:?}", v);
+            assert_eq!(s, expected, "serialize {v:?}");
             let back: Value = serde_json::from_str(&s).unwrap();
-            assert_eq!(back, v, "roundtrip {:?}", v);
+            assert_eq!(back, v, "roundtrip {v:?}");
         }
     }
 

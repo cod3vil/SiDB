@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::Arc;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum SshAuthKind {
     Password,
@@ -98,7 +98,12 @@ fn save_configs(list: &[ConnConfig]) -> Result<()> {
 pub fn save_connection(cred: &CredentialService, input: ConnConfigInput) -> Result<ConnConfig> {
     let id = input.id.clone().unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
 
-    // 凭证入钥匙串。
+    let mut list = load_configs();
+    // 编辑既有连接时，前端留空密码表示「保持不变」：保留已存的钥匙串凭证与标志，
+    // 避免每次编辑都要重填密码。
+    let prior_has_password = list.iter().find(|c| c.id == id).map(|c| c.has_password).unwrap_or(false);
+
+    // 凭证入钥匙串（仅在本次提供了明文时覆盖）。
     if let Some(pw) = &input.password {
         cred.set(&keys::conn_password(&id), pw)?;
     }
@@ -123,10 +128,9 @@ pub fn save_connection(cred: &CredentialService, input: ConnConfigInput) -> Resu
         connect_timeout_secs: input.connect_timeout_secs.unwrap_or(10),
         sqlite_path: input.sqlite_path,
         ssh: input.ssh,
-        has_password: input.password.is_some(),
+        has_password: input.password.is_some() || prior_has_password,
     };
 
-    let mut list = load_configs();
     if let Some(existing) = list.iter_mut().find(|c| c.id == id) {
         *existing = cfg.clone();
     } else {
@@ -179,7 +183,7 @@ pub fn build_target(
     })
 }
 
-fn default_port(kind: DbKind) -> u16 {
+pub fn default_port(kind: DbKind) -> u16 {
     match kind {
         DbKind::Mysql => 3306,
         DbKind::Postgres => 5432,

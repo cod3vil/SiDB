@@ -42,6 +42,8 @@ pub struct TunnelManager {
 }
 
 /// russh 客户端 handler：一期 TOFU，接受服务器公钥。
+///
+/// russh 0.45 的 `Handler` 仍是 `#[async_trait]`，故实现块需同样标注。
 struct ClientHandler;
 
 #[async_trait::async_trait]
@@ -50,7 +52,7 @@ impl russh::client::Handler for ClientHandler {
 
     async fn check_server_key(
         &mut self,
-        _server_public_key: &russh::keys::ssh_key::PublicKey,
+        _server_public_key: &russh::keys::key::PublicKey,
     ) -> Result<bool, Self::Error> {
         // TODO(M2 T2.2): 记录到 ~/.dblite/known_hosts，变更时弹窗警告。
         Ok(true)
@@ -83,15 +85,12 @@ impl TunnelManager {
                 let key = russh::keys::decode_secret_key(pem, passphrase.as_deref())
                     .map_err(|e| AppError::Ssh(format!("key decode: {e}")))?;
                 session
-                    .authenticate_publickey(
-                        &spec.ssh_user,
-                        russh::keys::PrivateKeyWithHashAlg::new(Arc::new(key), None),
-                    )
+                    .authenticate_publickey(&spec.ssh_user, Arc::new(key))
                     .await
                     .map_err(|e| AppError::Ssh(format!("auth: {e}")))?
             }
         };
-        if !authed.success() {
+        if !authed {
             return Err(AppError::AuthFailed("ssh authentication failed".into()));
         }
 

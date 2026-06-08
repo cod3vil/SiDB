@@ -85,7 +85,7 @@ mod tests {
 
     #[test]
     fn csv_row_crlf() {
-        let vals = vec![Value::Int(1), Value::Text("x,y".into())];
+        let vals = [Value::Int(1), Value::Text("x,y".into())];
         assert_eq!(csv_row(vals.iter(), None), "1,\"x,y\"\r\n");
     }
 

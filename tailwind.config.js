@@ -10,6 +10,11 @@ export default {
           DEFAULT: "var(--surface)",
           muted: "var(--surface-muted)",
         },
+        // 介于 Tailwind neutral 700/800/900 之间的过渡色，提供更细腻的暗色层次。
+        neutral: {
+          750: "#333333",
+          850: "#1f1f1f",
+        },
       },
       fontFamily: {
         mono: ["'JetBrains Mono'", "'SF Mono'", "Menlo", "Consolas", "monospace"],

@@ -91,7 +91,7 @@ pub fn build_stmt(caps: &DbCapabilities, table: &TableRef, change: &Change) -> R
             let mut params = Vec::new();
             let mut idx = 0usize;
             let where_clause = build_where(caps, key, &mut params, &mut idx)?;
-            let sql = format!("DELETE FROM {qt} WHERE {}", where_clause);
+            let sql = format!("DELETE FROM {qt} WHERE {where_clause}");
             Ok(Stmt { sql, params })
         }
     }
@@ -170,7 +170,7 @@ fn literal(v: &Value) -> String {
             format!("'{}'", s.replace('\'', "''"))
         }
         Value::Json(j) => format!("'{}'", j.to_string().replace('\'', "''")),
-        Value::Bytes { len, .. } => format!("X'..{} bytes..'", len),
+        Value::Bytes { len, .. } => format!("X'..{len} bytes..'"),
         Value::Array(_) => format!("'{}'", serde_json::to_string(v).unwrap_or_default()),
     }
 }
