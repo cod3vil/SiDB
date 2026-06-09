@@ -11,7 +11,15 @@ import { TopBar } from "@/components/toolbar/TopBar";
 import { SqlEditor } from "@/components/editor/SqlEditor";
 import { ResultGrid } from "@/components/grid/ResultGrid";
 import { ipc } from "@/ipc";
-import type { ConnConfig, DbCapabilities, ResultSet, RunResult, SavedQuery, TableRef } from "@/ipc/types";
+import type {
+  ChangeSet,
+  ConnConfig,
+  DbCapabilities,
+  ResultSet,
+  RunResult,
+  SavedQuery,
+  TableRef,
+} from "@/ipc/types";
 import { useConnections } from "@/stores";
 import { errorMessage } from "@/lib/error";
 import { LANGUAGES, setLanguage } from "@/i18n";
@@ -365,6 +373,21 @@ export default function App() {
     updateTab(tab.id, { page: next, results: [rowsResult(rs)], activeResult: 0 });
   };
 
+  // 提交单元格编辑：写库后刷新当前页。失败抛出（让网格保留编辑）。
+  const commitEdits = async (cs: ChangeSet) => {
+    const tab = activeTab;
+    if (!tab?.connId || !tab.browseTable) return;
+    try {
+      await ipc.commitChanges(tab.connId, cs);
+    } catch (e) {
+      updateTab(tab.id, { error: errorMessage(e) });
+      throw e;
+    }
+    updateTab(tab.id, { error: null });
+    const rs = await ipc.openTableData(tab.connId, tab.browseTable, tab.page, PAGE_SIZE);
+    updateTab(tab.id, { results: [rowsResult(rs)], activeResult: 0 });
+  };
+
   // ---- 保存查询 -----------------------------------------------------------
 
   const requestSave = () => {
@@ -569,7 +592,12 @@ export default function App() {
                   </div>
                   <div className="flex min-h-0 flex-1 flex-col">
                     {active?.type === "rows" ? (
-                      <ResultGrid result={active} onGoto={browseMode ? gotoPage : undefined} />
+                      <ResultGrid
+                        result={active}
+                        onGoto={browseMode ? gotoPage : undefined}
+                        table={browseMode ? activeTab?.browseTable : null}
+                        onCommit={browseMode ? commitEdits : undefined}
+                      />
                     ) : active?.type === "affected" ? (
                       <div className="flex-1 overflow-auto rounded-md border border-border bg-muted/20 p-3 font-mono text-xs leading-relaxed">
                         <div className="whitespace-pre-wrap text-foreground">{active.statement}</div>

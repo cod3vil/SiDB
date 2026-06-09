@@ -39,6 +39,27 @@ function cell(text: string): RenderedCell {
   return { text, isNull: false, isBytes: false, isJson: false };
 }
 
+/** 取单元格可编辑的原始文本（编辑框预填用）。 */
+export function editText(v: Value): string {
+  switch (v.t) {
+    case "Null":
+    case "Bytes":
+      return "";
+    case "Bool":
+      return v.v ? "1" : "0";
+    case "Int":
+    case "UInt":
+    case "Float":
+      return String(v.v);
+    case "Json":
+      return JSON.stringify(v.v);
+    case "Array":
+      return JSON.stringify(v.v);
+    default:
+      return v.v;
+  }
+}
+
 // 文本输入 → Value（编辑提交用，按列 value_kind 推断）。
 export function parseValue(input: string, valueKind: string): Value {
   switch (valueKind) {

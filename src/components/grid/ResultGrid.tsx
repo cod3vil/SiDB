@@ -3,22 +3,85 @@
 import { useEffect, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useTranslation } from "react-i18next";
-import type { ResultSet } from "@/ipc/types";
-import { renderValue } from "@/lib/value";
+import type { Change, ChangeSet, ResultSet, TableRef, Value } from "@/ipc/types";
+import { editText, parseValue, renderValue } from "@/lib/value";
+import { cn } from "@/lib/utils";
 
 interface Props {
   result: ResultSet;
   /** 跳转到指定页（0-based）。未提供则禁用分页（如查询结果）。 */
   onGoto?: (page: number) => void;
+  /** 浏览表时的表引用 + 提交回调；提供且结果可编辑时支持双击编辑。 */
+  table?: TableRef | null;
+  onCommit?: (cs: ChangeSet) => Promise<void> | void;
 }
 
 const ROW_HEIGHT = 28;
 const DEFAULT_W = 160;
 const MIN_W = 56;
 
-export function ResultGrid({ result, onGoto }: Props) {
+export function ResultGrid({ result, onGoto, table, onCommit }: Props) {
   const { t } = useTranslation();
   const parentRef = useRef<HTMLDivElement>(null);
+
+  // ---- 编辑 ----
+  const rowIdColumns = result.editable.kind === "Editable" ? result.editable.row_id_columns : [];
+  const editable = Boolean(table && onCommit) && result.editable.kind === "Editable";
+  // 编辑映射：key=`${rowIndex}:${colName}` → 新值
+  const [edits, setEdits] = useState<Record<string, Value>>({});
+  const [editing, setEditing] = useState<{ row: number; col: string } | null>(null);
+  const [editStr, setEditStr] = useState("");
+  const [committing, setCommitting] = useState(false);
+  useEffect(() => {
+    // 结果变化（翻页/重查/提交后刷新）→ 清空未保存编辑。
+    setEdits({});
+    setEditing(null);
+  }, [result]);
+
+  const startEdit = (row: number, col: string, v: Value) => {
+    if (!editable || v.t === "Bytes") return;
+    setEditing({ row, col });
+    setEditStr(editText(v));
+  };
+  const commitEdit = (kind: string) => {
+    if (!editing) return;
+    const k = `${editing.row}:${editing.col}`;
+    setEdits((prev) => ({ ...prev, [k]: parseValue(editStr, kind) }));
+    setEditing(null);
+  };
+
+  const submit = async () => {
+    if (!table || !onCommit) return;
+    const byRow = new Map<number, Record<string, Value>>();
+    for (const [k, val] of Object.entries(edits)) {
+      const idx = k.indexOf(":");
+      const r = Number(k.slice(0, idx));
+      const col = k.slice(idx + 1);
+      if (!byRow.has(r)) byRow.set(r, {});
+      byRow.get(r)![col] = val;
+    }
+    const changes: Change[] = [...byRow.entries()].map(([rowIdx, set]) => {
+      const row = result.rows[rowIdx];
+      const key: Record<string, Value> = {};
+      for (const pk of rowIdColumns) {
+        const ci = result.columns.findIndex((c) => c.name === pk);
+        if (ci >= 0) key[pk] = row[ci];
+      }
+      return { type: "update", key, set };
+    });
+    setCommitting(true);
+    try {
+      await onCommit({ table, row_id_columns: rowIdColumns, changes });
+      setEdits({});
+    } catch {
+      // 提交失败：保留编辑，错误由上层展示。
+    } finally {
+      setCommitting(false);
+    }
+  };
+
+  const editCount = Object.keys(edits).length;
+
   const page = result.page.page;
   const pageSize = result.page.page_size;
   const total = result.total_hint;
@@ -139,17 +202,43 @@ export function ResultGrid({ result, onGoto }: Props) {
                 style={{ height: ROW_HEIGHT, width: totalWidth, transform: `translateY(${vrow.start}px)` }}
               >
                 {row.map((v, ci) => {
-                  const r = renderValue(v);
+                  const col = result.columns[ci];
+                  const k = `${vrow.index}:${col.name}`;
+                  const edited = k in edits;
+                  const cur = edited ? edits[k] : v;
+                  const r = renderValue(cur);
+                  const isEditing = editing?.row === vrow.index && editing?.col === col.name;
                   return (
                     <div
                       key={ci}
-                      className={`flex items-center border-r border-b border-border px-2 truncate ${
-                        r.isNull ? "text-muted-foreground italic" : ""
-                      } ${r.isBytes || r.isJson ? "text-sky-400" : ""}`}
+                      className={cn(
+                        "flex items-center border-r border-b border-border px-2 truncate",
+                        r.isNull && "text-muted-foreground italic",
+                        (r.isBytes || r.isJson) && "text-sky-400",
+                        edited && "bg-primary/15",
+                        editable && "cursor-text",
+                      )}
                       style={{ width: widthOf(ci) }}
                       title={r.text}
+                      onDoubleClick={() => startEdit(vrow.index, col.name, cur)}
                     >
-                      {r.isNull ? t("grid.null") : r.text}
+                      {isEditing ? (
+                        <input
+                          autoFocus
+                          value={editStr}
+                          onChange={(e) => setEditStr(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") commitEdit(col.value_kind);
+                            else if (e.key === "Escape") setEditing(null);
+                          }}
+                          onBlur={() => commitEdit(col.value_kind)}
+                          className="w-full bg-background px-0.5 text-foreground outline-none ring-1 ring-primary"
+                        />
+                      ) : r.isNull ? (
+                        t("grid.null")
+                      ) : (
+                        r.text
+                      )}
                     </div>
                   );
                 })}
@@ -182,12 +271,24 @@ export function ResultGrid({ result, onGoto }: Props) {
         </div>
         <span className="ml-1">{t("grid.page", { from, to })}</span>
         {total != null && <span>· {t("grid.totalRows", { n: total })}</span>}
-        <span className="ml-auto">{result.elapsed_ms} ms</span>
-        {readOnly && (
-          <span className="text-amber-500">
-            {t("grid.readOnly", { reason: (result.editable as { reason: string }).reason })}
-          </span>
-        )}
+        <div className="ml-auto flex items-center gap-3">
+          {editable && editCount > 0 && (
+            <button
+              onClick={submit}
+              disabled={committing}
+              className="flex items-center gap-1 rounded bg-primary px-2 py-0.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+            >
+              <i className="ri-check-line" />
+              {t("edit.commit")} ({editCount})
+            </button>
+          )}
+          <span>{result.elapsed_ms} ms</span>
+          {readOnly && (
+            <span className="text-amber-500">
+              {t("grid.readOnly", { reason: (result.editable as { reason: string }).reason })}
+            </span>
+          )}
+        </div>
       </div>
     </div>
   );
