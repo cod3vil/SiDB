@@ -7,6 +7,18 @@ import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialo
 import { ipc } from "@/ipc";
 import type { ConnConfig, ConnConfigInput, DbKind, SslMode } from "@/ipc/types";
 import { errorMessage } from "@/lib/error";
+import { Button } from "@/components/ui/button";
+import { Input as UiInput } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Select as UiSelect,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 interface Props {
   /** 传入则为编辑模式；否则新建。 */
@@ -228,33 +240,27 @@ export function ConnectionDialog({ initial, onClose, onSaved }: Props) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={onClose}>
       <div
-        className="w-[460px] max-h-[88vh] overflow-auto rounded-xl border border-neutral-700 bg-neutral-850 shadow-2xl"
+        className="flex h-[560px] max-h-[90vh] w-[460px] flex-col overflow-hidden rounded-xl border border-border bg-card shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="px-5 py-3 border-b border-neutral-700/70">
-          <h2 className="text-sm font-semibold text-neutral-100">
+        <div className="shrink-0 px-5 py-3 border-b border-border">
+          <h2 className="text-sm font-semibold text-foreground">
             {initial ? t("conn.editTitle") : t("conn.newTitle")}
           </h2>
         </div>
 
         {/* Tab 栏 */}
-        <div className="flex gap-1 border-b border-neutral-700/70 px-4 pt-2">
-          {tabs.map((tb) => (
-            <button
-              key={tb.key}
-              onClick={() => setTab(tb.key)}
-              className={`-mb-px rounded-t-md border-b-2 px-3 py-1.5 text-xs font-medium transition ${
-                tab === tb.key
-                  ? "border-emerald-500 text-neutral-100"
-                  : "border-transparent text-neutral-400 hover:text-neutral-200"
-              }`}
-            >
-              {tb.label}
-            </button>
-          ))}
-        </div>
+        <Tabs value={tab} onValueChange={(v) => setTab(v as typeof tab)} className="shrink-0">
+          <TabsList className="px-4 pt-2">
+            {tabs.map((tb) => (
+              <TabsTrigger key={tb.key} value={tb.key}>
+                {tb.label}
+              </TabsTrigger>
+            ))}
+          </TabsList>
+        </Tabs>
 
-        <div className="px-5 py-4 space-y-3">
+        <div className="flex-1 overflow-auto px-5 py-4 space-y-3">
           {/* 常规 */}
           {tab === "general" && (
             <>
@@ -265,8 +271,8 @@ export function ConnectionDialog({ initial, onClose, onSaved }: Props) {
                     onClick={() => pickKind(k)}
                     className={`flex-1 rounded-md px-3 py-1.5 text-xs font-medium capitalize transition ${
                       f.kind === k
-                        ? "bg-emerald-600 text-white"
-                        : "bg-neutral-800 text-neutral-300 hover:bg-neutral-750"
+                        ? "bg-primary text-primary-foreground"
+                        : "bg-secondary text-secondary-foreground hover:bg-accent"
                     }`}
                   >
                     {k}
@@ -362,17 +368,15 @@ export function ConnectionDialog({ initial, onClose, onSaved }: Props) {
           {/* SSH */}
           {tab === "ssh" && !isSqlite && (
             <>
-              <label className="flex items-center gap-2 text-xs text-neutral-300 cursor-pointer select-none">
-                <input
-                  type="checkbox"
+              <label className="flex items-center gap-2 text-xs text-foreground cursor-pointer select-none">
+                <Checkbox
                   checked={f.sshEnabled}
-                  onChange={(e) => set({ sshEnabled: e.target.checked })}
-                  className="accent-emerald-600"
+                  onCheckedChange={(c) => set({ sshEnabled: c === true })}
                 />
                 {t("conn.sshEnable")}
               </label>
               {f.sshEnabled && (
-                <div className="space-y-3 rounded-lg border border-neutral-700/70 bg-neutral-900/50 p-3">
+                <div className="space-y-3 rounded-lg border border-border bg-background/50 p-3">
                   <div className="flex gap-2">
                     <Field label={t("conn.sshHost")} className="flex-1">
                       <Input value={f.sshHost} onChange={(v) => set({ sshHost: v })} />
@@ -427,29 +431,17 @@ export function ConnectionDialog({ initial, onClose, onSaved }: Props) {
           )}
         </div>
 
-        <div className="flex items-center gap-2 px-5 py-3 border-t border-neutral-700/70">
-          <button
-            onClick={onTest}
-            disabled={busy}
-            className="rounded-md px-3 py-1.5 text-xs font-medium bg-neutral-800 text-neutral-200 hover:bg-neutral-750 disabled:opacity-40"
-          >
+        <div className="flex shrink-0 items-center gap-2 px-5 py-3 border-t border-border">
+          <Button variant="secondary" onClick={onTest} disabled={busy}>
             {testing ? t("conn.testing") : t("conn.test")}
-          </button>
+          </Button>
           <div className="ml-auto flex gap-2">
-            <button
-              onClick={onClose}
-              disabled={busy}
-              className="rounded-md px-3 py-1.5 text-xs font-medium bg-neutral-800 text-neutral-300 hover:bg-neutral-750 disabled:opacity-40"
-            >
+            <Button variant="secondary" onClick={onClose} disabled={busy}>
               {t("common.cancel")}
-            </button>
-            <button
-              onClick={onSave}
-              disabled={busy}
-              className="rounded-md px-4 py-1.5 text-xs font-semibold bg-emerald-600 text-white hover:bg-emerald-500 disabled:opacity-40"
-            >
+            </Button>
+            <Button onClick={onSave} disabled={busy}>
               {saving ? t("conn.saving") : t("conn.save")}
-            </button>
+            </Button>
           </div>
         </div>
       </div>
@@ -457,7 +449,7 @@ export function ConnectionDialog({ initial, onClose, onSaved }: Props) {
   );
 }
 
-// ---- 小型受控原子组件 -----------------------------------------------------
+// ---- 受控原子组件（基于 shadcn，保持紧凑） ------------------------------
 
 function Field({
   label,
@@ -469,10 +461,10 @@ function Field({
   children: React.ReactNode;
 }) {
   return (
-    <label className={`block ${className ?? ""}`}>
-      <span className="mb-1 block text-[11px] font-medium text-neutral-400">{label}</span>
+    <div className={`space-y-1 ${className ?? ""}`}>
+      <Label>{label}</Label>
       {children}
-    </label>
+    </div>
   );
 }
 
@@ -490,13 +482,12 @@ function Input({
   autoFocus?: boolean;
 }) {
   return (
-    <input
+    <UiInput
       type={type}
       value={value}
       placeholder={placeholder}
       autoFocus={autoFocus}
       onChange={(e) => onChange(e.target.value)}
-      className="w-full rounded-md border border-neutral-700 bg-neutral-900 px-2.5 py-1.5 text-xs text-neutral-100 placeholder:text-neutral-600 outline-none focus:border-emerald-500"
     />
   );
 }
@@ -513,28 +504,25 @@ function Select({
   labels?: Record<string, string>;
 }) {
   return (
-    <select
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      className="w-full rounded-md border border-neutral-700 bg-neutral-900 px-2.5 py-1.5 text-xs text-neutral-100 outline-none focus:border-emerald-500"
-    >
-      {options.map((o) => (
-        <option key={o} value={o}>
-          {labels?.[o] ?? o}
-        </option>
-      ))}
-    </select>
+    <UiSelect value={value} onValueChange={onChange}>
+      <SelectTrigger>
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        {options.map((o) => (
+          <SelectItem key={o} value={o}>
+            {labels?.[o] ?? o}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </UiSelect>
   );
 }
 
 function SmallButton({ onClick, children }: { onClick: () => void; children: React.ReactNode }) {
   return (
-    <button
-      onClick={onClick}
-      type="button"
-      className="shrink-0 rounded-md border border-neutral-700 bg-neutral-800 px-2.5 py-1.5 text-xs text-neutral-300 hover:bg-neutral-750"
-    >
+    <Button type="button" variant="outline" size="sm" onClick={onClick}>
       {children}
-    </button>
+    </Button>
   );
 }

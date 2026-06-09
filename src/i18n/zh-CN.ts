@@ -7,6 +7,7 @@ export default {
     close: "关闭",
     confirm: "确定",
     ok: "好的",
+    language: "语言",
   },
   conn: {
     new: "新建连接",

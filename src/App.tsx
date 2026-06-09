@@ -9,12 +9,14 @@ import { ipc } from "@/ipc";
 import type { ConnConfig, ResultSet, RunResult, TableRef } from "@/ipc/types";
 import { useConnections } from "@/stores";
 import { errorMessage } from "@/lib/error";
+import { LANGUAGES, setLanguage } from "@/i18n";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 const PAGE_SIZE = 1000;
 const TAB_ID = "tab-1";
 
 export default function App() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { configs, connected, setConfigs, setConnected } = useConnections();
   const [activeConn, setActiveConn] = useState<string | null>(null);
   const [sql, setSql] = useState("SELECT 1;");
@@ -183,6 +185,23 @@ export default function App() {
           <div className="h-3.5 w-3.5 rounded-[4px] bg-gradient-to-br from-emerald-400 to-emerald-600" />
           <span className="text-xs font-semibold tracking-wide text-neutral-200">{t("app.title")}</span>
           <span className="text-[11px] text-neutral-600">{t("app.subtitle")}</span>
+        </div>
+        <div className="ml-auto">
+          <Select value={i18n.language} onValueChange={setLanguage}>
+            <SelectTrigger
+              icon="ri-translate-2"
+              className="h-6 w-auto gap-1 border-none bg-transparent px-1.5 text-neutral-300 hover:text-neutral-100"
+            >
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {LANGUAGES.map((l) => (
+                <SelectItem key={l.value} value={l.value}>
+                  {l.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
       </header>
 
