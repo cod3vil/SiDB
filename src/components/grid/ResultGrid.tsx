@@ -25,18 +25,32 @@ export function ResultGrid({ result, onGoto, table, onCommit }: Props) {
   const parentRef = useRef<HTMLDivElement>(null);
 
   // ---- 编辑 ----
+  const NULL_V: Value = { t: "Null" };
+  const existingCount = result.rows.length;
   const rowIdColumns = result.editable.kind === "Editable" ? result.editable.row_id_columns : [];
   const editable = Boolean(table && onCommit) && result.editable.kind === "Editable";
-  // 编辑映射：key=`${rowIndex}:${colName}` → 新值
+  // 既有行的单元格编辑：key=`${rowIndex}:${colName}` → 新值
   const [edits, setEdits] = useState<Record<string, Value>>({});
+  const [newRows, setNewRows] = useState<Record<string, Value>[]>([]); // 待插入
+  const [deletedRows, setDeletedRows] = useState<Set<number>>(new Set()); // 待删除（既有行下标）
+  const [selectedRow, setSelectedRow] = useState<number | null>(null);
   const [editing, setEditing] = useState<{ row: number; col: string } | null>(null);
   const [editStr, setEditStr] = useState("");
   const [committing, setCommitting] = useState(false);
   useEffect(() => {
-    // 结果变化（翻页/重查/提交后刷新）→ 清空未保存编辑。
+    // 结果变化（翻页/重查/提交后刷新）→ 清空未保存改动。
     setEdits({});
+    setNewRows([]);
+    setDeletedRows(new Set());
+    setSelectedRow(null);
     setEditing(null);
   }, [result]);
+
+  const cellOf = (vi: number, ci: number, colName: string): Value => {
+    if (vi >= existingCount) return newRows[vi - existingCount]?.[colName] ?? NULL_V;
+    const k = `${vi}:${colName}`;
+    return k in edits ? edits[k] : result.rows[vi][ci];
+  };
 
   const startEdit = (row: number, col: string, v: Value) => {
     if (!editable || v.t === "Bytes") return;
@@ -45,42 +59,82 @@ export function ResultGrid({ result, onGoto, table, onCommit }: Props) {
   };
   const commitEdit = (kind: string) => {
     if (!editing) return;
-    const k = `${editing.row}:${editing.col}`;
-    setEdits((prev) => ({ ...prev, [k]: parseValue(editStr, kind) }));
+    const { row, col } = editing;
+    const val = parseValue(editStr, kind);
+    if (row >= existingCount) {
+      const j = row - existingCount;
+      setNewRows((rs) => rs.map((r, i) => (i === j ? { ...r, [col]: val } : r)));
+    } else {
+      setEdits((prev) => ({ ...prev, [`${row}:${col}`]: val }));
+    }
     setEditing(null);
+  };
+
+  const addRow = () => {
+    setNewRows((rs) => [...rs, {}]);
+    setSelectedRow(existingCount + newRows.length);
+  };
+  const deleteSelected = () => {
+    if (selectedRow == null) return;
+    if (selectedRow >= existingCount) {
+      const j = selectedRow - existingCount;
+      setNewRows((rs) => rs.filter((_, i) => i !== j));
+      setSelectedRow(null);
+    } else {
+      setDeletedRows((s) => {
+        const n = new Set(s);
+        if (n.has(selectedRow)) n.delete(selectedRow);
+        else n.add(selectedRow);
+        return n;
+      });
+    }
+  };
+
+  const pkOf = (rowIdx: number): Record<string, Value> => {
+    const row = result.rows[rowIdx];
+    const key: Record<string, Value> = {};
+    for (const pk of rowIdColumns) {
+      const ci = result.columns.findIndex((c) => c.name === pk);
+      if (ci >= 0) key[pk] = row[ci];
+    }
+    return key;
   };
 
   const submit = async () => {
     if (!table || !onCommit) return;
+    const changes: Change[] = [];
+    // 更新（既有、未删除行）
     const byRow = new Map<number, Record<string, Value>>();
     for (const [k, val] of Object.entries(edits)) {
       const idx = k.indexOf(":");
       const r = Number(k.slice(0, idx));
+      if (deletedRows.has(r)) continue;
       const col = k.slice(idx + 1);
       if (!byRow.has(r)) byRow.set(r, {});
       byRow.get(r)![col] = val;
     }
-    const changes: Change[] = [...byRow.entries()].map(([rowIdx, set]) => {
-      const row = result.rows[rowIdx];
-      const key: Record<string, Value> = {};
-      for (const pk of rowIdColumns) {
-        const ci = result.columns.findIndex((c) => c.name === pk);
-        if (ci >= 0) key[pk] = row[ci];
-      }
-      return { type: "update", key, set };
-    });
+    for (const [rowIdx, set] of byRow) changes.push({ type: "update", key: pkOf(rowIdx), set });
+    // 删除
+    for (const r of deletedRows) changes.push({ type: "delete", key: pkOf(r) });
+    // 插入（至少设了一列）
+    for (const nr of newRows) {
+      if (Object.keys(nr).length) changes.push({ type: "insert", values: nr });
+    }
+    if (changes.length === 0) return;
     setCommitting(true);
     try {
       await onCommit({ table, row_id_columns: rowIdColumns, changes });
-      setEdits({});
     } catch {
-      // 提交失败：保留编辑，错误由上层展示。
+      // 提交失败：保留改动，错误由上层展示。
     } finally {
       setCommitting(false);
     }
   };
 
-  const editCount = Object.keys(edits).length;
+  const dirtyCount =
+    Object.keys(edits).filter((k) => !deletedRows.has(Number(k.slice(0, k.indexOf(":"))))).length +
+    deletedRows.size +
+    newRows.filter((r) => Object.keys(r).length).length;
 
   const page = result.page.page;
   const pageSize = result.page.page_size;
@@ -144,8 +198,9 @@ export function ResultGrid({ result, onGoto, table, onCommit }: Props) {
   const widthOf = (i: number) => widths[i] ?? DEFAULT_W;
   const totalWidth = result.columns.reduce((sum, _c, i) => sum + widthOf(i), 0);
 
+  const rowCount = existingCount + newRows.length;
   const rowVirtualizer = useVirtualizer({
-    count: result.rows.length,
+    count: rowCount,
     getScrollElement: () => parentRef.current,
     estimateSize: () => ROW_HEIGHT,
     overscan: 12,
@@ -194,20 +249,28 @@ export function ResultGrid({ result, onGoto, table, onCommit }: Props) {
         {/* virtual rows */}
         <div style={{ height: rowVirtualizer.getTotalSize(), width: totalWidth, position: "relative" }}>
           {rowVirtualizer.getVirtualItems().map((vrow) => {
-            const row = result.rows[vrow.index];
+            const vi = vrow.index;
+            const isNew = vi >= existingCount;
+            const isDeleted = !isNew && deletedRows.has(vi);
+            const isSelected = selectedRow === vi;
             return (
               <div
                 key={vrow.key}
-                className="absolute left-0 flex text-xs font-mono hover:bg-accent/50"
+                onClick={() => editable && setSelectedRow(vi)}
+                className={cn(
+                  "absolute left-0 flex text-xs font-mono",
+                  isDeleted && "bg-destructive/10 line-through opacity-60",
+                  isNew && "bg-emerald-500/5",
+                  isSelected && "ring-1 ring-inset ring-primary/60",
+                  !isDeleted && !isNew && "hover:bg-accent/50",
+                )}
                 style={{ height: ROW_HEIGHT, width: totalWidth, transform: `translateY(${vrow.start}px)` }}
               >
-                {row.map((v, ci) => {
-                  const col = result.columns[ci];
-                  const k = `${vrow.index}:${col.name}`;
-                  const edited = k in edits;
-                  const cur = edited ? edits[k] : v;
+                {result.columns.map((col, ci) => {
+                  const cur = cellOf(vi, ci, col.name);
+                  const edited = !isNew && `${vi}:${col.name}` in edits;
                   const r = renderValue(cur);
-                  const isEditing = editing?.row === vrow.index && editing?.col === col.name;
+                  const isEditing = editing?.row === vi && editing?.col === col.name;
                   return (
                     <div
                       key={ci}
@@ -216,11 +279,11 @@ export function ResultGrid({ result, onGoto, table, onCommit }: Props) {
                         r.isNull && "text-muted-foreground italic",
                         (r.isBytes || r.isJson) && "text-sky-400",
                         edited && "bg-primary/15",
-                        editable && "cursor-text",
+                        editable && !isDeleted && "cursor-text",
                       )}
                       style={{ width: widthOf(ci) }}
                       title={r.text}
-                      onDoubleClick={() => startEdit(vrow.index, col.name, cur)}
+                      onDoubleClick={() => !isDeleted && startEdit(vi, col.name, cur)}
                     >
                       {isEditing ? (
                         <input
@@ -249,6 +312,18 @@ export function ResultGrid({ result, onGoto, table, onCommit }: Props) {
       </div>
       {/* status bar */}
       <div className="flex items-center gap-2 px-2 py-1 text-xs text-muted-foreground bg-background border-t border-border">
+        {editable && (
+          <div className="flex items-center gap-0.5">
+            <PageBtn icon="ri-add-line" title={t("edit.addRow")} onClick={addRow} />
+            <PageBtn
+              icon="ri-subtract-line"
+              title={t("edit.deleteRow")}
+              disabled={selectedRow == null}
+              onClick={deleteSelected}
+            />
+            <span className="mx-0.5 h-4 w-px bg-border" />
+          </div>
+        )}
         <div className="flex items-center gap-0.5">
           <PageBtn icon="ri-skip-back-mini-line" title={t("grid.first")} disabled={!onGoto || atFirst} onClick={() => goto(0)} />
           <PageBtn icon="ri-arrow-left-s-line" title={t("grid.prev")} disabled={!onGoto || atFirst} onClick={() => goto(page - 1)} />
@@ -272,14 +347,14 @@ export function ResultGrid({ result, onGoto, table, onCommit }: Props) {
         <span className="ml-1">{t("grid.page", { from, to })}</span>
         {total != null && <span>· {t("grid.totalRows", { n: total })}</span>}
         <div className="ml-auto flex items-center gap-3">
-          {editable && editCount > 0 && (
+          {editable && dirtyCount > 0 && (
             <button
               onClick={submit}
               disabled={committing}
               className="flex items-center gap-1 rounded bg-primary px-2 py-0.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
             >
               <i className="ri-check-line" />
-              {t("edit.commit")} ({editCount})
+              {t("edit.commit")} ({dirtyCount})
             </button>
           )}
           <span>{result.elapsed_ms} ms</span>

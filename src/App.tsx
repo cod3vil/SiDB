@@ -117,6 +117,28 @@ export default function App() {
     applyTheme(next);
   };
 
+  // 编辑器 / 结果区分隔条高度（可拖拽）。
+  const [editorHeight, setEditorHeight] = useState(240);
+  const startDragSplit = (e: React.MouseEvent) => {
+    e.preventDefault();
+    const startY = e.clientY;
+    const startH = editorHeight;
+    const onMove = (ev: MouseEvent) => {
+      const next = Math.max(120, Math.min(startH + (ev.clientY - startY), window.innerHeight - 220));
+      setEditorHeight(next);
+    };
+    const onUp = () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    document.body.style.cursor = "row-resize";
+    document.body.style.userSelect = "none";
+  };
+
   const activeTab = tabs.find((x) => x.id === activeTabId) ?? tabs[0];
   const updateTab = (id: string, patch: Partial<QueryTab>) =>
     setTabs((ts) => ts.map((x) => (x.id === id ? { ...x, ...patch } : x)));
@@ -543,13 +565,20 @@ export default function App() {
             canSave={Boolean(activeTab?.connId)}
             onSave={requestSave}
           />
-          <div className="h-2/5 min-h-[160px] border-b border-border">
+          <div className="shrink-0 overflow-hidden" style={{ height: editorHeight }}>
             <SqlEditor
               value={activeTab?.sql ?? ""}
               onChange={(v) => updateTab(activeTabId, { sql: v })}
               onRun={runSql}
               theme={theme}
             />
+          </div>
+          <div
+            onMouseDown={startDragSplit}
+            className="group h-1.5 shrink-0 cursor-row-resize bg-border transition-colors hover:bg-primary/50"
+            title=""
+          >
+            <div className="mx-auto mt-[1px] h-0.5 w-8 rounded-full bg-muted-foreground/30 group-hover:bg-primary-foreground/50" />
           </div>
           <div className="flex min-h-0 flex-1 flex-col p-2">
             {activeTab?.error && (
