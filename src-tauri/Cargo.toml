@@ -65,6 +65,12 @@ dirs = "5"
 # AI HTTP (one-shot test connectivity in phase 1; full use in phase 2)
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 
+# macOS：运行期设置 Dock / About 面板图标（dev 下也能显示自定义 logo）。
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-app-kit = { version = "0.3", features = ["NSApplication", "NSImage", "NSResponder"] }
+objc2-foundation = { version = "0.3", features = ["NSData"] }
+
 [dev-dependencies]
 tokio = { version = "1", features = ["full", "test-util"] }
 testcontainers = "0.23"

@@ -82,10 +82,32 @@ pub fn page_info(page: Page, returned: u64) -> PageInfo {
     }
 }
 
-/// 一条语句执行的结果（SELECT → ResultSet；其它 → 影响行数）。
+/// 一条语句执行的结果（SELECT → ResultSet；其它 → 影响行数摘要）。
 pub enum RunOutcome {
     Rows(ResultSet),
-    Affected { affected_rows: u64, last_insert_id: Option<i64> },
+    Affected {
+        affected_rows: u64,
+        last_insert_id: Option<i64>,
+        elapsed_ms: u64,
+        statement: String,
+    },
+}
+
+/// 浏览模式的总行数（best-effort，用于分页「末页 / 页码」）。失败/超时返回 None。
+pub async fn count_table(
+    adapter: &dyn DbAdapter,
+    caps: &DbCapabilities,
+    table: &TableRef,
+    timeout: Option<Duration>,
+) -> Option<u64> {
+    let qt = caps.quote_table(table).ok()?;
+    let sql = format!("SELECT COUNT(*) FROM {qt}");
+    let raw = with_timeout(timeout, adapter.query("__count__", &sql, &[])).await.ok()?;
+    match raw.rows.first()?.first()? {
+        Value::Int(n) => (*n >= 0).then_some(*n as u64),
+        Value::UInt(n) => Some(*n),
+        _ => None,
+    }
 }
 
 /// 执行一段脚本（可能多语句），返回每条语句的结果。
@@ -104,6 +126,7 @@ pub async fn run_script(
     for (i, stmt) in stmts.iter().enumerate() {
         let qid = format!("{query_id_prefix}:{i}");
         let kw = sqlsplit::first_keyword(stmt);
+        let started = std::time::Instant::now();
         if is_result_producing(&kw) {
             let wrapped = wrap_pagination(stmt, page);
             let raw = with_timeout(read_timeout, adapter.query(&qid, &wrapped, &[])).await?;
@@ -113,7 +136,7 @@ pub async fn run_script(
                 rows: raw.rows,
                 total_hint: None,
                 page: page_info(page, returned),
-                elapsed_ms: 0,
+                elapsed_ms: started.elapsed().as_millis() as u64,
                 editable: Editability::ReadOnly { reason: "custom-query".into() },
             }));
         } else {
@@ -121,6 +144,8 @@ pub async fn run_script(
             outcomes.push(RunOutcome::Affected {
                 affected_rows: res.affected_rows,
                 last_insert_id: res.last_insert_id,
+                elapsed_ms: started.elapsed().as_millis() as u64,
+                statement: stmt.trim().to_string(),
             });
         }
     }

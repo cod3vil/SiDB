@@ -30,6 +30,8 @@ interface Props {
   canRun: boolean;
   onRun: () => void;
   onCancel: () => void;
+  canSave: boolean;
+  onSave: () => void;
 }
 
 export function TopBar(p: Props) {
@@ -71,6 +73,15 @@ export function TopBar(p: Props) {
       />
 
       <div className="ml-auto flex items-center gap-1">
+        <Button
+          size="icon"
+          variant="secondary"
+          onClick={p.onSave}
+          disabled={!p.canSave}
+          title={`${t("editor.save")} (⌘/Ctrl+S)`}
+        >
+          <i className="ri-save-line text-base" />
+        </Button>
         <Button size="icon" onClick={p.onRun} disabled={!p.canRun || p.running} title={t("toolbar.run")}>
           <i className="ri-play-fill text-base" />
         </Button>

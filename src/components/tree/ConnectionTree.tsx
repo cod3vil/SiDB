@@ -7,9 +7,8 @@
 
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { confirm } from "@tauri-apps/plugin-dialog";
 import { ipc } from "@/ipc";
-import type { ConnConfig, DbCapabilities, RoutineInfo, TableInfo, TableRef } from "@/ipc/types";
+import type { ConnConfig, DbCapabilities, RoutineInfo, SavedQuery, TableInfo, TableRef } from "@/ipc/types";
 import { useConnections } from "@/stores";
 import { errorMessage } from "@/lib/error";
 import {
@@ -19,6 +18,7 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 
 /** 复制到剪贴板（webview 安全上下文）。 */
 function copyText(s: string) {
@@ -31,15 +31,18 @@ export type NewObjectType = "database" | "table" | "view" | "function" | "query"
 const TreeCtx = createContext<{
   onShowDdl: (connId: string, table: TableRef) => void;
   onNewObject: (connId: string, database: string | null, schema: string | null, type: NewObjectType) => void;
+  onOpenQuery: (connId: string, query: SavedQuery) => void;
 }>({
   onShowDdl: () => undefined,
   onNewObject: () => undefined,
+  onOpenQuery: () => undefined,
 });
 
 interface Props {
   onOpenTable: (connId: string, table: TableRef) => void;
   onShowDdl: (connId: string, table: TableRef) => void;
   onNewObject: (connId: string, database: string | null, schema: string | null, type: NewObjectType) => void;
+  onOpenQuery: (connId: string, query: SavedQuery) => void;
   onNewConnection: () => void;
   onEditConnection: (cfg: ConnConfig) => void;
 }
@@ -48,6 +51,7 @@ export function ConnectionTree({
   onOpenTable,
   onShowDdl,
   onNewObject,
+  onOpenQuery,
   onNewConnection,
   onEditConnection,
 }: Props) {
@@ -55,6 +59,7 @@ export function ConnectionTree({
   const { configs, connected, setConfigs, setConnected, setDisconnected } = useConnections();
   const [filter, setFilter] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<ConnConfig | null>(null);
 
   const reload = useCallback(() => {
     ipc.listConnections().then(setConfigs).catch(() => undefined);
@@ -80,9 +85,11 @@ export function ConnectionTree({
     setDisconnected(cfg.id);
   };
 
-  const onDelete = async (cfg: ConnConfig) => {
-    const ok = await confirm(t("conn.deleteConfirm", { name: cfg.name }), { kind: "warning" });
-    if (!ok) return;
+  const onDelete = (cfg: ConnConfig) => setPendingDelete(cfg);
+  const confirmDelete = async () => {
+    const cfg = pendingDelete;
+    if (!cfg) return;
+    setPendingDelete(null);
     await ipc.deleteConnection(cfg.id).catch((e) => setError(errorMessage(e)));
     setDisconnected(cfg.id);
     reload();
@@ -124,7 +131,7 @@ export function ConnectionTree({
         {configs.length === 0 ? (
           <EmptyState onNew={onNewConnection} />
         ) : (
-          <TreeCtx.Provider value={{ onShowDdl, onNewObject }}>
+          <TreeCtx.Provider value={{ onShowDdl, onNewObject, onOpenQuery }}>
             {filtered.map((cfg) => (
               <ConnNode
                 key={cfg.id}
@@ -140,6 +147,15 @@ export function ConnectionTree({
           </TreeCtx.Provider>
         )}
       </div>
+
+      {pendingDelete && (
+        <ConfirmDialog
+          danger
+          message={t("conn.deleteConfirm", { name: pendingDelete.name })}
+          onCancel={() => setPendingDelete(null)}
+          onConfirm={confirmDelete}
+        />
+      )}
     </div>
   );
 }
@@ -589,20 +605,38 @@ function CategoryNode(
   p: CategoryProps & { kind: "tables" | "views" | "functions" | "queries"; icon: string; label: string },
 ) {
   const { t } = useTranslation();
-  const { onNewObject } = useContext(TreeCtx);
+  const { onNewObject, onOpenQuery } = useContext(TreeCtx);
   const treeVersion = useConnections((s) => s.treeVersion);
   const [expanded, setExpanded] = useState(false);
   const [tables, setTables] = useState<TableInfo[] | null>(null);
   const [funcs, setFuncs] = useState<RoutineInfo[] | null>(null);
+  const [queries, setQueries] = useState<SavedQuery[] | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
-  // 建表后（treeVersion 变化）若已展开则重新拉取。
+  const loadQueries = () =>
+    ipc
+      .listQueries()
+      .then((all) =>
+        setQueries(
+          all.filter(
+            (q) =>
+              q.conn_id === p.connId &&
+              (q.database ?? null) === (p.refDatabase ?? null) &&
+              (q.schema ?? null) === (p.refSchema ?? null),
+          ),
+        ),
+      )
+      .catch((e) => setErr(errorMessage(e)));
+
+  // 建表 / 保存查询后（treeVersion 变化）若已展开则重新拉取。
   useEffect(() => {
     if (!expanded) return;
     if (p.kind === "tables" || p.kind === "views") {
       ipc.listTables(p.connId, p.listDatabase, p.listSchema).then(setTables).catch((e) => setErr(errorMessage(e)));
     } else if (p.kind === "functions") {
       ipc.listFunctions(p.connId, p.listDatabase, p.listSchema).then(setFuncs).catch((e) => setErr(errorMessage(e)));
+    } else if (p.kind === "queries") {
+      void loadQueries();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [treeVersion]);
@@ -629,6 +663,8 @@ function CategoryNode(
           .then(setFuncs)
           .catch((e) => setErr(errorMessage(e)));
       }
+    } else if (p.kind === "queries") {
+      if (queries === null) void loadQueries();
     }
   };
 
@@ -704,11 +740,81 @@ function CategoryNode(
             ) : (
               <Hint depth={cdepth} text={t("grid.empty")} />
             ))}
-          {/* 自定义查询（保存的查询，功能待补） */}
-          {p.kind === "queries" && <Hint depth={cdepth} text={t("tree.queriesEmpty")} />}
+          {/* 保存的查询 */}
+          {p.kind === "queries" &&
+            !err &&
+            (queries === null ? (
+              <Loading depth={cdepth} />
+            ) : queries.length > 0 ? (
+              queries.map((q) => (
+                <QueryItem key={q.id} connId={p.connId} query={q} depth={cdepth} onReload={loadQueries} onOpen={onOpenQuery} />
+              ))
+            ) : (
+              <Hint depth={cdepth} text={t("tree.queriesEmpty")} />
+            ))}
         </>
       )}
     </div>
+  );
+}
+
+// 保存的查询项：双击打开到新标签；右键运行 / 删除。
+function QueryItem({
+  connId,
+  query,
+  depth,
+  onReload,
+  onOpen,
+}: {
+  connId: string;
+  query: SavedQuery;
+  depth: number;
+  onReload: () => void;
+  onOpen: (connId: string, query: SavedQuery) => void;
+}) {
+  const { t } = useTranslation();
+  const { bumpTree } = useConnections();
+  const [confirming, setConfirming] = useState(false);
+  const doDelete = async () => {
+    setConfirming(false);
+    await ipc.deleteQuery(query.id).catch(() => undefined);
+    onReload();
+    bumpTree();
+  };
+  return (
+    <>
+      <ContextMenu>
+        <ContextMenuTrigger asChild>
+          <div>
+            <Row
+              depth={depth}
+              icon="ri-bookmark-line"
+              iconColor="text-muted-foreground"
+              label={query.name}
+              title={query.name}
+              onDoubleClick={() => onOpen(connId, query)}
+            />
+          </div>
+        </ContextMenuTrigger>
+        <ContextMenuContent>
+          <ContextMenuItem icon="ri-play-line" onClick={() => onOpen(connId, query)}>
+            {t("editor.run")}
+          </ContextMenuItem>
+          <ContextMenuSeparator />
+          <ContextMenuItem icon="ri-delete-bin-line" destructive onClick={() => setConfirming(true)}>
+            {t("editor.delete")}
+          </ContextMenuItem>
+        </ContextMenuContent>
+      </ContextMenu>
+      {confirming && (
+        <ConfirmDialog
+          danger
+          message={t("editor.deleteQueryConfirm", { name: query.name })}
+          onCancel={() => setConfirming(false)}
+          onConfirm={doDelete}
+        />
+      )}
+    </>
   );
 }
 

@@ -9,6 +9,7 @@ pub mod edit;
 pub mod export;
 pub mod metadata;
 pub mod query;
+pub mod saved_query;
 pub mod settings;
 
 pub use connection::ConnectionManager;

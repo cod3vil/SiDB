@@ -14,6 +14,7 @@ use crate::services::dml::ChangeSet;
 use crate::services::edit::{CommitResult, EditService};
 use crate::services::metadata;
 use crate::services::query::{self, Page};
+use crate::services::saved_query;
 use crate::services::settings::{self, Settings};
 use crate::tunnel::{SshAuth, TunnelManager, TunnelSpec};
 use std::sync::Arc;
@@ -306,10 +307,11 @@ pub async fn open_table_data(
     let raw = query::with_timeout(s.read_timeout, a.query(&qid, &sql, &[])).await?;
     let returned = raw.rows.len() as u64;
     let editable = metadata::editability(&**a, &table).await?;
+    let total_hint = query::count_table(&**a, &s.caps, &table, s.read_timeout).await;
     Ok(ResultSet {
         columns: raw.columns,
         rows: raw.rows,
-        total_hint: None,
+        total_hint,
         page: query::page_info(pg, returned),
         elapsed_ms: started.elapsed().as_millis() as u64,
         editable,
@@ -321,7 +323,12 @@ pub async fn open_table_data(
 #[serde(tag = "type", rename_all = "lowercase")]
 pub enum RunResult {
     Rows(ResultSet),
-    Affected { affected_rows: u64, last_insert_id: Option<i64> },
+    Affected {
+        affected_rows: u64,
+        last_insert_id: Option<i64>,
+        elapsed_ms: u64,
+        statement: String,
+    },
 }
 
 #[tauri::command]
@@ -345,8 +352,8 @@ pub async fn run_sql(
         .into_iter()
         .map(|o| match o {
             query::RunOutcome::Rows(rs) => RunResult::Rows(rs),
-            query::RunOutcome::Affected { affected_rows, last_insert_id } => {
-                RunResult::Affected { affected_rows, last_insert_id }
+            query::RunOutcome::Affected { affected_rows, last_insert_id, elapsed_ms, statement } => {
+                RunResult::Affected { affected_rows, last_insert_id, elapsed_ms, statement }
             }
         })
         .collect())
@@ -388,6 +395,23 @@ pub async fn commit_changes(
 }
 
 // ---- 设置 -----------------------------------------------------------------
+
+// ---- 保存的查询 -----------------------------------------------------------
+
+#[tauri::command]
+pub fn list_queries() -> R<Vec<saved_query::SavedQuery>> {
+    Ok(saved_query::load())
+}
+
+#[tauri::command]
+pub fn save_query(input: saved_query::SavedQueryInput) -> R<saved_query::SavedQuery> {
+    saved_query::save(input)
+}
+
+#[tauri::command]
+pub fn delete_query(id: String) -> R<()> {
+    saved_query::delete(&id)
+}
 
 #[tauri::command]
 pub fn get_settings() -> R<Settings> {

@@ -50,8 +50,14 @@ export interface ResultSet {
 }
 
 export type RunResult =
-  | { type: "rows"; /* flattened ResultSet */ } & ResultSet
-  | { type: "affected"; affected_rows: number; last_insert_id: number | null };
+  | ({ type: "rows"; /* flattened ResultSet */ } & ResultSet)
+  | {
+      type: "affected";
+      affected_rows: number;
+      last_insert_id: number | null;
+      elapsed_ms: number;
+      statement: string;
+    };
 
 export interface TableRef {
   database: string | null;
@@ -130,6 +136,22 @@ export interface TableInfo {
 export interface RoutineInfo {
   name: string;
   kind: "function" | "procedure";
+}
+export interface SavedQuery {
+  id: string;
+  name: string;
+  conn_id: string;
+  database: string | null;
+  schema: string | null;
+  sql: string;
+}
+export interface SavedQueryInput {
+  id?: string;
+  name: string;
+  conn_id: string;
+  database?: string | null;
+  schema?: string | null;
+  sql: string;
 }
 export interface ColumnInfo {
   name: string;

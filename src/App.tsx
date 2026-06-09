@@ -1,60 +1,91 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ConnectionTree, type NewObjectType } from "@/components/tree/ConnectionTree";
 import { ConnectionDialog } from "@/components/conn/ConnectionDialog";
 import { NewDatabaseDialog } from "@/components/conn/NewDatabaseDialog";
 import { NewTableDialog } from "@/components/table/NewTableDialog";
+import { NewViewDialog } from "@/components/table/NewViewDialog";
+import { SaveQueryDialog } from "@/components/query/SaveQueryDialog";
+import { TabBar } from "@/components/tab/TabBar";
 import { TopBar } from "@/components/toolbar/TopBar";
 import { SqlEditor } from "@/components/editor/SqlEditor";
 import { ResultGrid } from "@/components/grid/ResultGrid";
 import { ipc } from "@/ipc";
-import type { ConnConfig, ResultSet, RunResult, TableRef } from "@/ipc/types";
+import type { ConnConfig, DbCapabilities, ResultSet, RunResult, SavedQuery, TableRef } from "@/ipc/types";
 import { useConnections } from "@/stores";
 import { errorMessage } from "@/lib/error";
 import { LANGUAGES, setLanguage } from "@/i18n";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { type Theme, getTheme, applyTheme } from "@/lib/theme";
+import { cn } from "@/lib/utils";
 import { version } from "../package.json";
 
 const PAGE_SIZE = 1000;
-const TAB_ID = "tab-1";
 
-/** 右键「新增…」时载入编辑器的 CREATE 模板（方言相关的函数部分按 kind 区分）。 */
+/** 一个查询标签：独立的连接上下文 + SQL + 结果。 */
+interface QueryTab {
+  id: string;
+  title: string;
+  connId: string | null;
+  db: string | null;
+  schema: string | null;
+  databases: string[];
+  schemas: string[];
+  tables: string[];
+  sql: string;
+  results: RunResult[]; // 多语句：每条结果一个面板
+  activeResult: number;
+  running: boolean;
+  error: string | null;
+  browseTable: TableRef | null;
+  page: number;
+  savedQueryId?: string;
+}
+
+/** 把表浏览的 ResultSet 包成 RunResult 行结果。 */
+function rowsResult(rs: ResultSet): RunResult {
+  return { type: "rows", ...rs };
+}
+
+/** 右键「新增函数/查询」时载入编辑器的模板（库/表/视图走可视化弹窗）。 */
 function scaffoldSql(type: NewObjectType, kind?: string): string {
   switch (type) {
-    case "query":
-      return "";
-    case "database":
-      return "CREATE DATABASE new_database;";
-    case "table":
-      return "CREATE TABLE new_table (\n  id INT PRIMARY KEY,\n  name VARCHAR(255) NOT NULL\n);";
-    case "view":
-      return "CREATE VIEW new_view AS\nSELECT * FROM table_name;";
     case "function":
       if (kind === "postgres")
         return "CREATE FUNCTION new_function() RETURNS integer AS $$\nBEGIN\n  RETURN 0;\nEND;\n$$ LANGUAGE plpgsql;";
       if (kind === "sqlite") return "-- SQLite 不支持存储函数 / 存储过程";
       return "CREATE FUNCTION new_function() RETURNS INT\nBEGIN\n  RETURN 0;\nEND;";
+    default:
+      return "";
   }
 }
 
 export default function App() {
   const { t, i18n } = useTranslation();
   const { configs, connected, setConfigs, setConnected, bumpTree } = useConnections();
-  const [activeConn, setActiveConn] = useState<string | null>(null);
-  const [sql, setSql] = useState("SELECT 1;");
-  const [result, setResult] = useState<ResultSet | null>(null);
-  const [running, setRunning] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [browseTable, setBrowseTable] = useState<TableRef | null>(null);
-  const [page, setPage] = useState(0);
 
-  // 当前上下文（库 / schema）与下拉数据。
-  const [activeDb, setActiveDb] = useState<string | null>(null);
-  const [activeSchema, setActiveSchema] = useState<string | null>(null);
-  const [databases, setDatabases] = useState<string[]>([]);
-  const [schemas, setSchemas] = useState<string[]>([]);
-  const [tables, setTables] = useState<string[]>([]);
+  const seqRef = useRef(1);
+  const blankTab = (n: number, init: Partial<QueryTab> = {}): QueryTab => ({
+    id: `tab-${n}`,
+    title: t("tab.queryN", { n }),
+    connId: null,
+    db: null,
+    schema: null,
+    databases: [],
+    schemas: [],
+    tables: [],
+    sql: "SELECT 1;",
+    results: [],
+    activeResult: 0,
+    running: false,
+    error: null,
+    browseTable: null,
+    page: 0,
+    ...init,
+  });
+
+  const [tabs, setTabs] = useState<QueryTab[]>(() => [blankTab(1)]);
+  const [activeTabId, setActiveTabId] = useState("tab-1");
 
   const [dialog, setDialog] = useState<{ cfg: ConnConfig | null } | null>(null);
   const [dbDialog, setDbDialog] = useState<string | null>(null);
@@ -63,6 +94,13 @@ export default function App() {
     database: string | null;
     schema: string | null;
   } | null>(null);
+  const [viewDialog, setViewDialog] = useState<{
+    connId: string;
+    database: string | null;
+    schema: string | null;
+  } | null>(null);
+
+  const [saveDialog, setSaveDialog] = useState(false);
 
   const [theme, setThemeState] = useState<Theme>(getTheme);
   const toggleTheme = () => {
@@ -71,103 +109,192 @@ export default function App() {
     applyTheme(next);
   };
 
-  const caps = activeConn ? connected[activeConn] : null;
-  const cfg = configs.find((c) => c.id === activeConn) ?? null;
+  const activeTab = tabs.find((x) => x.id === activeTabId) ?? tabs[0];
+  const updateTab = (id: string, patch: Partial<QueryTab>) =>
+    setTabs((ts) => ts.map((x) => (x.id === id ? { ...x, ...patch } : x)));
+
+  // ---- tab 管理 -----------------------------------------------------------
+
+  const addTab = () => {
+    const n = ++seqRef.current;
+    const a = activeTab;
+    const tab = blankTab(n, {
+      connId: a?.connId ?? null,
+      db: a?.db ?? null,
+      schema: a?.schema ?? null,
+      databases: a?.databases ?? [],
+      schemas: a?.schemas ?? [],
+      tables: a?.tables ?? [],
+      sql: "",
+    });
+    setTabs((ts) => [...ts, tab]);
+    setActiveTabId(tab.id);
+  };
+
+  const closeTab = (id: string) => {
+    const idx = tabs.findIndex((x) => x.id === id);
+    const rest = tabs.filter((x) => x.id !== id);
+    if (rest.length === 0) {
+      const n = ++seqRef.current;
+      const fresh = blankTab(n);
+      setTabs([fresh]);
+      setActiveTabId(fresh.id);
+      return;
+    }
+    setTabs(rest);
+    if (id === activeTabId) setActiveTabId((rest[idx - 1] ?? rest[0]).id);
+  };
+
+  const closeOthers = (id: string) => {
+    setTabs((ts) => ts.filter((x) => x.id === id));
+    setActiveTabId(id);
+  };
+
+  // ---- 上下文派生（基于当前激活 tab）-------------------------------------
+
+  const caps = activeTab?.connId ? connected[activeTab.connId] : null;
+  const cfg = configs.find((c) => c.id === activeTab?.connId) ?? null;
   const showDb = Boolean(caps?.supports_use_database);
   const showSchema = Boolean(caps?.supports_schemas);
+  const refDatabase = showSchema ? (cfg?.database ?? null) : showDb ? (activeTab?.db ?? null) : null;
+  const refSchema = showSchema ? (activeTab?.schema ?? null) : null;
 
-  // 该上下文下，构造表引用所需的库/schema。
-  const refDatabase = showSchema ? (cfg?.database ?? null) : showDb ? activeDb : null;
-  const refSchema = showSchema ? activeSchema : null;
-  const listDatabase = showSchema ? (cfg?.database ?? "") : showDb ? (activeDb ?? "") : "main";
+  // ---- 命令式拉取上下文数据（避免切 tab 时闪烁/重置）---------------------
 
-  // 连接切换：拉库 / schema 列表。
-  useEffect(() => {
-    if (!activeConn || !caps) {
-      setDatabases([]);
-      setSchemas([]);
-      return;
-    }
-    if (caps.supports_use_database) {
-      ipc.listDatabases(activeConn).then((l) => setDatabases(l.map((d) => d.name))).catch(() => setDatabases([]));
-    } else if (caps.supports_schemas) {
-      setDatabases(cfg?.database ? [cfg.database] : []);
-    } else {
-      setDatabases([]);
-    }
-    if (caps.supports_schemas) {
-      ipc
-        .listSchemas(activeConn, cfg?.database ?? "")
-        .then((l) => {
-          setSchemas(l);
-          setActiveSchema((cur) => cur ?? (l.includes("public") ? "public" : l[0] ?? null));
-        })
-        .catch(() => setSchemas([]));
-    } else {
-      setSchemas([]);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeConn, caps?.supports_use_database, caps?.supports_schemas]);
+  const listTablesFor = async (
+    connId: string,
+    c: DbCapabilities,
+    db: string | null,
+    schema: string | null,
+  ): Promise<string[]> => {
+    if (c.supports_use_database && !db) return [];
+    const conf = configs.find((x) => x.id === connId) ?? null;
+    const listDb = c.supports_schemas ? (conf?.database ?? "") : (db ?? "main");
+    const refS = c.supports_schemas ? schema : null;
+    return ipc
+      .listTables(connId, listDb, refS)
+      .then((l) => l.map((x) => x.name))
+      .catch(() => []);
+  };
 
-  // 上下文确定后，拉表列表填充工具栏「表」下拉。
-  useEffect(() => {
-    if (!activeConn || !caps) {
-      setTables([]);
-      return;
+  const loadContext = async (
+    connId: string,
+    c: DbCapabilities,
+    db: string | null,
+    schema: string | null,
+  ) => {
+    const conf = configs.find((x) => x.id === connId) ?? null;
+    let databases: string[] = [];
+    let schemas: string[] = [];
+    let outSchema = schema;
+    if (c.supports_use_database) {
+      databases = await ipc.listDatabases(connId).then((l) => l.map((d) => d.name)).catch(() => []);
+    } else if (c.supports_schemas) {
+      databases = conf?.database ? [conf.database] : [];
+      schemas = await ipc.listSchemas(connId, conf?.database ?? "").catch(() => []);
+      if (!outSchema) outSchema = schemas.includes("public") ? "public" : (schemas[0] ?? null);
     }
-    if (caps.supports_use_database && !activeDb) {
-      setTables([]);
-      return;
-    }
-    ipc
-      .listTables(activeConn, listDatabase, refSchema)
-      .then((l) => setTables(l.map((x) => x.name)))
-      .catch(() => setTables([]));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeConn, activeDb, activeSchema, caps?.supports_use_database, caps?.supports_schemas]);
+    const tables = await listTablesFor(connId, c, db, outSchema);
+    return { databases, schemas, schema: outSchema, tables };
+  };
 
-  const selectConn = async (id: string) => {
-    setError(null);
-    setActiveConn(id);
-    setActiveDb(null);
-    setActiveSchema(null);
-    if (!connected[id]) {
+  const ensureConnected = async (connId: string): Promise<DbCapabilities | null> => {
+    let c = connected[connId];
+    if (!c) {
       try {
-        const c = await ipc.connect(id);
-        setConnected(id, c);
+        c = await ipc.connect(connId);
+        setConnected(connId, c);
       } catch (e) {
-        setError(errorMessage(e));
+        updateTab(activeTabId, { error: errorMessage(e) });
+        return null;
       }
     }
+    return c;
+  };
+
+  // ---- toolbar 操作（作用于激活 tab）------------------------------------
+
+  const pickConn = async (connId: string) => {
+    const tabId = activeTabId;
+    updateTab(tabId, { error: null });
+    const c = await ensureConnected(connId);
+    if (!c) return;
+    const ctx = await loadContext(connId, c, null, null);
+    updateTab(tabId, { connId, db: null, ...ctx });
+  };
+
+  const pickDb = async (db: string) => {
+    const tabId = activeTabId;
+    const connId = activeTab?.connId;
+    if (!connId || !caps) return;
+    const tables = await listTablesFor(connId, caps, db, activeTab.schema);
+    updateTab(tabId, { db, tables });
+  };
+
+  const pickSchema = async (schema: string) => {
+    const tabId = activeTabId;
+    const connId = activeTab?.connId;
+    if (!connId || !caps) return;
+    const tables = await listTablesFor(connId, caps, activeTab.db, schema);
+    updateTab(tabId, { schema, tables });
   };
 
   const openTable = async (connId: string, table: TableRef) => {
-    setActiveConn(connId);
-    setBrowseTable(table);
-    if (table.database) setActiveDb(table.database);
-    if (table.schema) setActiveSchema(table.schema);
-    setPage(0);
-    setError(null);
+    const tabId = activeTabId;
+    const c = await ensureConnected(connId);
+    if (!c) return;
+    const ctx = await loadContext(connId, c, table.database ?? null, table.schema ?? null);
+    updateTab(tabId, {
+      connId,
+      db: table.database ?? null,
+      schema: table.schema ?? ctx.schema ?? null,
+      databases: ctx.databases,
+      schemas: ctx.schemas,
+      tables: ctx.tables,
+      browseTable: table,
+      page: 0,
+      error: null,
+      title: table.name,
+    });
     try {
       const rs = await ipc.openTableData(connId, table, 0, PAGE_SIZE);
-      setResult(rs);
+      updateTab(tabId, { results: [rowsResult(rs)], activeResult: 0 });
     } catch (e) {
-      setError(errorMessage(e));
+      updateTab(tabId, { error: errorMessage(e) });
     }
   };
 
   const onSelectTable = (name: string) => {
-    if (!activeConn) return;
-    void openTable(activeConn, { database: refDatabase, schema: refSchema, name });
+    if (!activeTab?.connId) return;
+    void openTable(activeTab.connId, { database: refDatabase, schema: refSchema, name });
   };
 
-  // 右键新增：库 / 表走可视化弹窗；视图 / 函数 / 查询载入编辑器模板。
-  const newObject = (
-    connId: string,
-    database: string | null,
-    schema: string | null,
-    type: NewObjectType,
-  ) => {
+  const showDdl = async (connId: string, table: TableRef) => {
+    const tabId = activeTabId;
+    const c = await ensureConnected(connId);
+    if (!c) return;
+    const ctx = await loadContext(connId, c, table.database ?? null, table.schema ?? null);
+    updateTab(tabId, {
+      connId,
+      db: table.database ?? null,
+      schema: table.schema ?? ctx.schema ?? null,
+      databases: ctx.databases,
+      schemas: ctx.schemas,
+      tables: ctx.tables,
+      results: [],
+      activeResult: 0,
+      browseTable: null,
+      error: null,
+    });
+    try {
+      const ddl = await ipc.getTableDdl(connId, table);
+      updateTab(tabId, { sql: ddl });
+    } catch (e) {
+      updateTab(tabId, { error: errorMessage(e) });
+    }
+  };
+
+  const newObject = (connId: string, database: string | null, schema: string | null, type: NewObjectType) => {
     if (type === "database") {
       setDbDialog(connId);
       return;
@@ -176,69 +303,132 @@ export default function App() {
       setTableDialog({ connId, database, schema });
       return;
     }
-    setActiveConn(connId);
-    if (database) setActiveDb(database);
-    if (schema) setActiveSchema(schema);
-    setError(null);
-    setBrowseTable(null);
-    setResult(null);
-    const kind = configs.find((c) => c.id === connId)?.kind;
-    setSql(scaffoldSql(type, kind));
-  };
-
-  // 右键「查看 DDL」：取建表语句载入编辑器。
-  const showDdl = async (connId: string, table: TableRef) => {
-    setActiveConn(connId);
-    if (table.database) setActiveDb(table.database);
-    if (table.schema) setActiveSchema(table.schema);
-    setError(null);
-    try {
-      const ddl = await ipc.getTableDdl(connId, table);
-      setSql(ddl);
-    } catch (e) {
-      setError(errorMessage(e));
+    if (type === "view") {
+      setViewDialog({ connId, database, schema });
+      return;
     }
+    const tabId = activeTabId;
+    const kind = configs.find((c) => c.id === connId)?.kind;
+    updateTab(tabId, {
+      connId,
+      db: database ?? null,
+      schema: schema ?? null,
+      sql: scaffoldSql(type, kind),
+      results: [],
+      activeResult: 0,
+      browseTable: null,
+      error: null,
+    });
+    void (async () => {
+      const c = connected[connId];
+      if (!c) return;
+      const ctx = await loadContext(connId, c, database ?? null, schema ?? null);
+      updateTab(tabId, { databases: ctx.databases, schemas: ctx.schemas, tables: ctx.tables });
+    })();
   };
 
   const runSql = async () => {
-    if (!activeConn) {
-      setError(t("editor.noConn"));
+    const tabId = activeTabId;
+    const tab = tabs.find((x) => x.id === tabId);
+    if (!tab) return;
+    if (!tab.connId) {
+      updateTab(tabId, { error: t("editor.noConn") });
       return;
     }
-    setRunning(true);
-    setError(null);
-    setBrowseTable(null);
+    updateTab(tabId, { running: true, error: null, browseTable: null });
     try {
       const results: RunResult[] = await ipc.runSql(
-        activeConn,
-        TAB_ID,
-        sql,
+        tab.connId,
+        tabId,
+        tab.sql,
         0,
         PAGE_SIZE,
-        showDb ? activeDb : null,
+        connected[tab.connId]?.supports_use_database ? tab.db : null,
       );
-      const firstRows = results.find((r) => r.type === "rows") as (ResultSet & { type: "rows" }) | undefined;
-      setResult(firstRows ?? null);
+      updateTab(tabId, { results, activeResult: 0, running: false });
     } catch (e) {
-      setError(errorMessage(e));
-    } finally {
-      setRunning(false);
+      updateTab(tabId, { error: errorMessage(e), running: false });
     }
   };
 
   const cancelSql = async () => {
-    if (!activeConn) return;
-    // 取消当前脚本第一条语句（编辑器常见单语句场景）。
-    await ipc.cancelQuery(activeConn, `${TAB_ID}:0`).catch(() => undefined);
+    const tab = activeTab;
+    if (!tab?.connId) return;
+    await ipc.cancelQuery(tab.connId, `${tab.id}:0`).catch(() => undefined);
   };
 
-  const changePage = async (delta: number) => {
-    if (!activeConn || !browseTable) return;
-    const next = Math.max(0, page + delta);
-    setPage(next);
-    const rs = await ipc.openTableData(activeConn, browseTable, next, PAGE_SIZE);
-    setResult(rs);
+  const gotoPage = async (n: number) => {
+    const tab = activeTab;
+    if (!tab?.connId || !tab.browseTable) return;
+    const next = Math.max(0, n);
+    const rs = await ipc.openTableData(tab.connId, tab.browseTable, next, PAGE_SIZE);
+    updateTab(tab.id, { page: next, results: [rowsResult(rs)], activeResult: 0 });
   };
+
+  // ---- 保存查询 -----------------------------------------------------------
+
+  const requestSave = () => {
+    if (activeTab?.connId) setSaveDialog(true);
+  };
+
+  const doSaveQuery = async (name: string) => {
+    const tab = activeTab;
+    if (!tab?.connId) return;
+    setSaveDialog(false);
+    try {
+      const q = await ipc.saveQuery({
+        id: tab.savedQueryId,
+        name,
+        conn_id: tab.connId,
+        database: refDatabase,
+        schema: refSchema,
+        sql: tab.sql,
+      });
+      updateTab(tab.id, { savedQueryId: q.id, title: q.name });
+      bumpTree();
+    } catch (e) {
+      updateTab(tab.id, { error: errorMessage(e) });
+    }
+  };
+
+  // 打开已保存的查询到新标签。
+  const openSavedQuery = async (connId: string, q: SavedQuery) => {
+    const n = ++seqRef.current;
+    const tab = blankTab(n, {
+      title: q.name,
+      connId,
+      db: q.database,
+      schema: q.schema,
+      sql: q.sql,
+      savedQueryId: q.id,
+    });
+    setTabs((ts) => [...ts, tab]);
+    setActiveTabId(tab.id);
+    let c = connected[connId];
+    if (!c) {
+      try {
+        c = await ipc.connect(connId);
+        setConnected(connId, c);
+      } catch (e) {
+        updateTab(tab.id, { error: errorMessage(e) });
+        return;
+      }
+    }
+    const ctx = await loadContext(connId, c, q.database, q.schema);
+    updateTab(tab.id, { databases: ctx.databases, schemas: ctx.schemas, tables: ctx.tables });
+  };
+
+  // Cmd/Ctrl + S 保存当前 tab。
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "s") {
+        e.preventDefault();
+        if (activeTab?.connId) setSaveDialog(true);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [activeTab?.connId]);
 
   const onSaved = () => {
     setDialog(null);
@@ -257,7 +447,7 @@ export default function App() {
         className="flex h-9 shrink-0 items-center gap-2 border-b border-border bg-card px-3"
       >
         <div className="flex items-center gap-2">
-          <div className="h-3.5 w-3.5 rounded-[4px] bg-gradient-to-br from-emerald-400 to-emerald-600" />
+          <img src="/logo.png" alt="" className="h-4 w-4 rounded-[4px]" />
           <span className="text-xs font-semibold tracking-wide text-foreground">{t("app.title")}</span>
           <span className="rounded bg-muted px-1.5 py-px text-[10px] font-medium text-muted-foreground">
             v{version}
@@ -296,53 +486,126 @@ export default function App() {
             onOpenTable={openTable}
             onShowDdl={showDdl}
             onNewObject={newObject}
+            onOpenQuery={openSavedQuery}
             onNewConnection={() => setDialog({ cfg: null })}
             onEditConnection={(c) => setDialog({ cfg: c })}
           />
         </aside>
 
         <main className="flex min-w-0 flex-1 flex-col">
+          <TabBar
+            tabs={tabs.map((x) => ({ id: x.id, title: x.title }))}
+            activeId={activeTabId}
+            onSelect={setActiveTabId}
+            onClose={closeTab}
+            onCloseOthers={closeOthers}
+            onNew={addTab}
+          />
           <TopBar
             connections={connOptions}
-            activeConn={activeConn}
-            onSelectConn={selectConn}
-            databases={databases}
-            activeDb={activeDb}
-            onSelectDb={setActiveDb}
-            schemas={showSchema ? schemas : undefined}
-            activeSchema={activeSchema}
-            onSelectSchema={setActiveSchema}
-            tables={tables}
+            activeConn={activeTab?.connId ?? null}
+            onSelectConn={pickConn}
+            databases={activeTab?.databases ?? []}
+            activeDb={activeTab?.db ?? null}
+            onSelectDb={pickDb}
+            schemas={showSchema ? (activeTab?.schemas ?? []) : undefined}
+            activeSchema={activeTab?.schema ?? null}
+            onSelectSchema={pickSchema}
+            tables={activeTab?.tables ?? []}
             onSelectTable={onSelectTable}
-            running={running}
-            canRun={Boolean(activeConn)}
+            running={Boolean(activeTab?.running)}
+            canRun={Boolean(activeTab?.connId)}
             onRun={runSql}
             onCancel={cancelSql}
+            canSave={Boolean(activeTab?.connId)}
+            onSave={requestSave}
           />
           <div className="h-2/5 min-h-[160px] border-b border-border">
-            <SqlEditor value={sql} onChange={setSql} onRun={runSql} theme={theme} />
+            <SqlEditor
+              value={activeTab?.sql ?? ""}
+              onChange={(v) => updateTab(activeTabId, { sql: v })}
+              onRun={runSql}
+              theme={theme}
+            />
           </div>
           <div className="flex min-h-0 flex-1 flex-col p-2">
-            {error && (
+            {activeTab?.error && (
               <div className="mb-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-                {error}
+                {activeTab.error}
               </div>
             )}
-            {result ? (
-              <ResultGrid result={result} onPrevPage={() => changePage(-1)} onNextPage={() => changePage(1)} />
-            ) : (
-              <div className="flex flex-1 items-center justify-center">
-                <div className="text-center text-sm text-muted-foreground/70">
-                  <i className="ri-table-line mb-2 block text-3xl text-muted-foreground/40" />
-                  {t("grid.welcome")}
+            {(() => {
+              const results = activeTab?.results ?? [];
+              const ar = activeTab?.activeResult ?? 0;
+              const active = results[ar];
+              const browseMode = Boolean(activeTab?.browseTable);
+              if (results.length === 0) {
+                return (
+                  <div className="flex flex-1 items-center justify-center">
+                    <div className="text-center text-sm text-muted-foreground/70">
+                      <i className="ri-table-line mb-2 block text-3xl text-muted-foreground/40" />
+                      {t("grid.welcome")}
+                    </div>
+                  </div>
+                );
+              }
+              return (
+                <div className="flex min-h-0 flex-1 flex-col">
+                  <div className="mb-1 flex shrink-0 items-stretch overflow-x-auto border-b border-border">
+                    {results.map((_, i) => (
+                      <button
+                        key={i}
+                        onClick={() => updateTab(activeTabId, { activeResult: i })}
+                        className={cn(
+                          "-mb-px shrink-0 border-b-2 px-2.5 py-1 text-xs",
+                          i === ar
+                            ? "border-primary text-foreground"
+                            : "border-transparent text-muted-foreground hover:text-foreground",
+                        )}
+                      >
+                        {t("grid.resultN", { n: i + 1 })}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="flex min-h-0 flex-1 flex-col">
+                    {active?.type === "rows" ? (
+                      <ResultGrid result={active} onGoto={browseMode ? gotoPage : undefined} />
+                    ) : active?.type === "affected" ? (
+                      <div className="flex-1 overflow-auto rounded-md border border-border bg-muted/20 p-3 font-mono text-xs leading-relaxed">
+                        <div className="whitespace-pre-wrap text-foreground">{active.statement}</div>
+                        <div className="mt-1 flex items-center gap-1.5 text-emerald-500">
+                          <i className="ri-checkbox-circle-line" />
+                          {t("grid.affectedRows", { n: active.affected_rows })}
+                        </div>
+                        {active.last_insert_id != null && (
+                          <div className="text-muted-foreground">
+                            <span className="opacity-60">› </span>
+                            {t("grid.lastInsertId", { n: active.last_insert_id })}
+                          </div>
+                        )}
+                        <div className="text-muted-foreground">
+                          <span className="opacity-60">› </span>
+                          {t("grid.time", { s: (active.elapsed_ms / 1000).toFixed(3) })}
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
                 </div>
-              </div>
-            )}
+              );
+            })()}
           </div>
         </main>
       </div>
 
       {dialog && <ConnectionDialog initial={dialog.cfg} onClose={() => setDialog(null)} onSaved={onSaved} />}
+
+      {saveDialog && (
+        <SaveQueryDialog
+          initialName={activeTab?.savedQueryId ? activeTab.title : ""}
+          onClose={() => setSaveDialog(false)}
+          onConfirm={doSaveQuery}
+        />
+      )}
 
       {dbDialog && connected[dbDialog] && (
         <NewDatabaseDialog
@@ -367,6 +630,20 @@ export default function App() {
           onClose={() => setTableDialog(null)}
           onCreated={() => {
             setTableDialog(null);
+            bumpTree();
+          }}
+        />
+      )}
+
+      {viewDialog && connected[viewDialog.connId] && (
+        <NewViewDialog
+          connId={viewDialog.connId}
+          quoteChar={connected[viewDialog.connId].quote_char}
+          database={viewDialog.database}
+          schema={viewDialog.schema}
+          onClose={() => setViewDialog(null)}
+          onCreated={() => {
+            setViewDialog(null);
             bumpTree();
           }}
         />

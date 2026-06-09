@@ -11,6 +11,8 @@ import type {
   ResultSet,
   RunResult,
   RoutineInfo,
+  SavedQuery,
+  SavedQueryInput,
   Settings,
   TableInfo,
   TableRef,
@@ -76,6 +78,11 @@ export const ipc = {
     invoke<string[]>("preview_changes", { connId, changeSet }),
   commitChanges: (connId: string, changeSet: ChangeSet) =>
     invoke("commit_changes", { connId, changeSet }),
+
+  // 保存的查询
+  listQueries: () => invoke<SavedQuery[]>("list_queries"),
+  saveQuery: (input: SavedQueryInput) => invoke<SavedQuery>("save_query", { input }),
+  deleteQuery: (id: string) => invoke<void>("delete_query", { id }),
 
   // 设置
   getSettings: () => invoke<Settings>("get_settings"),

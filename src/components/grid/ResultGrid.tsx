@@ -8,17 +8,39 @@ import { renderValue } from "@/lib/value";
 
 interface Props {
   result: ResultSet;
-  onPrevPage?: () => void;
-  onNextPage?: () => void;
+  /** 跳转到指定页（0-based）。未提供则禁用分页（如查询结果）。 */
+  onGoto?: (page: number) => void;
 }
 
 const ROW_HEIGHT = 28;
 const DEFAULT_W = 160;
 const MIN_W = 56;
 
-export function ResultGrid({ result, onPrevPage, onNextPage }: Props) {
+export function ResultGrid({ result, onGoto }: Props) {
   const { t } = useTranslation();
   const parentRef = useRef<HTMLDivElement>(null);
+  const page = result.page.page;
+  const pageSize = result.page.page_size;
+  const total = result.total_hint;
+  const totalPages = total != null ? Math.max(1, Math.ceil(total / pageSize)) : null;
+  const [pageInput, setPageInput] = useState(String(page + 1));
+  useEffect(() => setPageInput(String(page + 1)), [page]);
+
+  const goto = (n: number) => {
+    if (!onGoto) return;
+    const clamped = Math.max(0, totalPages != null ? Math.min(n, totalPages - 1) : n);
+    onGoto(clamped);
+  };
+  const commitInput = () => {
+    const n = parseInt(pageInput, 10);
+    if (isNaN(n) || n < 1) {
+      setPageInput(String(page + 1));
+      return;
+    }
+    goto(n - 1);
+  };
+  const atFirst = page === 0;
+  const atLast = totalPages != null ? page >= totalPages - 1 : !result.page.has_more;
 
   // 列宽（像素）。仅当列集合变化时重置，翻页/改单元格不影响已调整的宽度。
   const colSig = result.columns.map((c) => c.name).join("");
@@ -137,14 +159,29 @@ export function ResultGrid({ result, onPrevPage, onNextPage }: Props) {
         </div>
       </div>
       {/* status bar */}
-      <div className="flex items-center gap-3 px-2 py-1 text-xs text-muted-foreground bg-background border-t border-border">
-        <span>{t("grid.page", { from, to })}</span>
-        <button className="px-2 hover:text-foreground disabled:opacity-40" onClick={onPrevPage} disabled={result.page.page === 0}>
-          {t("grid.prev")}
-        </button>
-        <button className="px-2 hover:text-foreground disabled:opacity-40" onClick={onNextPage} disabled={!result.page.has_more}>
-          {t("grid.next")}
-        </button>
+      <div className="flex items-center gap-2 px-2 py-1 text-xs text-muted-foreground bg-background border-t border-border">
+        <div className="flex items-center gap-0.5">
+          <PageBtn icon="ri-skip-back-mini-line" title={t("grid.first")} disabled={!onGoto || atFirst} onClick={() => goto(0)} />
+          <PageBtn icon="ri-arrow-left-s-line" title={t("grid.prev")} disabled={!onGoto || atFirst} onClick={() => goto(page - 1)} />
+          <input
+            value={pageInput}
+            onChange={(e) => setPageInput(e.target.value.replace(/[^0-9]/g, ""))}
+            onKeyDown={(e) => e.key === "Enter" && commitInput()}
+            onBlur={commitInput}
+            disabled={!onGoto}
+            className="h-5 w-10 rounded border border-border bg-card text-center text-xs text-foreground outline-none focus:border-ring disabled:opacity-50"
+          />
+          {totalPages != null && <span className="text-muted-foreground/70">/ {totalPages}</span>}
+          <PageBtn icon="ri-arrow-right-s-line" title={t("grid.next")} disabled={!onGoto || atLast} onClick={() => goto(page + 1)} />
+          <PageBtn
+            icon="ri-skip-forward-mini-line"
+            title={t("grid.last")}
+            disabled={!onGoto || totalPages == null || atLast}
+            onClick={() => totalPages != null && goto(totalPages - 1)}
+          />
+        </div>
+        <span className="ml-1">{t("grid.page", { from, to })}</span>
+        {total != null && <span>· {t("grid.totalRows", { n: total })}</span>}
         <span className="ml-auto">{result.elapsed_ms} ms</span>
         {readOnly && (
           <span className="text-amber-500">
@@ -153,5 +190,28 @@ export function ResultGrid({ result, onPrevPage, onNextPage }: Props) {
         )}
       </div>
     </div>
+  );
+}
+
+function PageBtn({
+  icon,
+  title,
+  disabled,
+  onClick,
+}: {
+  icon: string;
+  title: string;
+  disabled?: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      title={title}
+      onClick={onClick}
+      disabled={disabled}
+      className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-30 disabled:hover:bg-transparent"
+    >
+      <i className={`${icon} text-base`} />
+    </button>
   );
 }
