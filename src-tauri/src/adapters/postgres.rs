@@ -28,6 +28,7 @@ impl PostgresAdapter {
                 supports_cancel: true,
                 supports_schemas: true,
                 supports_multi_database: true,
+                supports_use_database: false,
                 param_style: ParamStyle::Dollar,
                 quote_char: '"',
                 has_rowid_fallback: false,
@@ -313,6 +314,30 @@ impl DbAdapter for PostgresAdapter {
                 Some(TableInfo {
                     name,
                     kind: if kind == "v" || kind == "m" { TableKind::View } else { TableKind::Table },
+                })
+            })
+            .collect())
+    }
+
+    async fn list_functions(&self, _db: &str, schema: Option<&str>) -> Result<Vec<RoutineInfo>> {
+        let schema = schema.unwrap_or("public");
+        let rows = sqlx::query(
+            "SELECT p.proname, p.prokind FROM pg_proc p \
+             JOIN pg_namespace n ON n.oid = p.pronamespace \
+             WHERE n.nspname = $1 AND p.prokind IN ('f','p') ORDER BY p.proname",
+        )
+        .bind(schema)
+        .fetch_all(self.pool()?)
+        .await
+        .map_err(AppError::from)?;
+        Ok(rows
+            .iter()
+            .filter_map(|r| {
+                let name: String = r.try_get("proname").ok()?;
+                let kind: String = r.try_get("prokind").unwrap_or_default();
+                Some(RoutineInfo {
+                    name,
+                    kind: if kind == "p" { RoutineKind::Procedure } else { RoutineKind::Function },
                 })
             })
             .collect())

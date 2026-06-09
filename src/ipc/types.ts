@@ -64,6 +64,7 @@ export interface DbCapabilities {
   supports_cancel: boolean;
   supports_schemas: boolean;
   supports_multi_database: boolean;
+  supports_use_database: boolean;
   param_style: "Question" | "Dollar";
   quote_char: string;
   has_rowid_fallback: boolean;
@@ -89,6 +90,9 @@ export interface ConnConfig {
   schema: string | null;
   ssl_mode: SslMode | null;
   connect_timeout_secs: number;
+  keepalive_secs: number;
+  read_timeout_secs: number;
+  write_timeout_secs: number;
   sqlite_path: string | null;
   ssh: SshConfig | null;
   has_password: boolean;
@@ -107,6 +111,9 @@ export interface ConnConfigInput {
   schema?: string | null;
   ssl_mode?: SslMode | null;
   connect_timeout_secs?: number | null;
+  keepalive_secs?: number | null;
+  read_timeout_secs?: number | null;
+  write_timeout_secs?: number | null;
   sqlite_path?: string | null;
   ssh?: SshConfig | null;
   ssh_password?: string | null;
@@ -119,6 +126,10 @@ export interface DatabaseInfo {
 export interface TableInfo {
   name: string;
   kind: "table" | "view";
+}
+export interface RoutineInfo {
+  name: string;
+  kind: "function" | "procedure";
 }
 export interface ColumnInfo {
   name: string;

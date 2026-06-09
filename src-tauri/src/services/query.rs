@@ -7,6 +7,22 @@
 use crate::adapters::{DbAdapter, DbCapabilities};
 use crate::models::*;
 use crate::sqlsplit;
+use std::time::Duration;
+
+/// 给一个返回 `Result<T>` 的 future 套上可选超时；超时映射为 `AppError::Timeout`。
+/// `None` 表示不限制。
+pub async fn with_timeout<F, T>(dur: Option<Duration>, fut: F) -> Result<T>
+where
+    F: std::future::Future<Output = Result<T>>,
+{
+    match dur {
+        Some(d) => match tokio::time::timeout(d, fut).await {
+            Ok(r) => r,
+            Err(_) => Err(AppError::Timeout(format!("操作超过 {} 秒", d.as_secs()))),
+        },
+        None => fut.await,
+    }
+}
 
 /// 分页参数。
 #[derive(Debug, Clone, Copy)]
@@ -80,6 +96,8 @@ pub async fn run_script(
     query_id_prefix: &str,
     script: &str,
     page: Page,
+    read_timeout: Option<Duration>,
+    write_timeout: Option<Duration>,
 ) -> Result<Vec<RunOutcome>> {
     let stmts = sqlsplit::split_statements(script);
     let mut outcomes = Vec::with_capacity(stmts.len());
@@ -88,7 +106,7 @@ pub async fn run_script(
         let kw = sqlsplit::first_keyword(stmt);
         if is_result_producing(&kw) {
             let wrapped = wrap_pagination(stmt, page);
-            let raw = adapter.query(&qid, &wrapped, &[]).await?;
+            let raw = with_timeout(read_timeout, adapter.query(&qid, &wrapped, &[])).await?;
             let returned = raw.rows.len() as u64;
             outcomes.push(RunOutcome::Rows(ResultSet {
                 columns: raw.columns,
@@ -99,7 +117,7 @@ pub async fn run_script(
                 editable: Editability::ReadOnly { reason: "custom-query".into() },
             }));
         } else {
-            let res = adapter.execute(&qid, stmt, &[]).await?;
+            let res = with_timeout(write_timeout, adapter.execute(&qid, stmt, &[])).await?;
             outcomes.push(RunOutcome::Affected {
                 affected_rows: res.affected_rows,
                 last_insert_id: res.last_insert_id,
@@ -132,6 +150,7 @@ mod tests {
             supports_cancel: true,
             supports_schemas: false,
             supports_multi_database: false,
+            supports_use_database: false,
             param_style: ParamStyle::Question,
             quote_char: '"',
             has_rowid_fallback: true,

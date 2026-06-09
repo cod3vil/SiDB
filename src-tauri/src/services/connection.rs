@@ -12,6 +12,7 @@ use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -45,6 +46,13 @@ pub struct ConnConfig {
     pub schema: Option<String>,
     pub ssl_mode: Option<SslMode>,
     pub connect_timeout_secs: u64,
+    /// 以下高级超时：0 表示不限制。旧配置缺字段时按 0 反序列化。
+    #[serde(default)]
+    pub keepalive_secs: u64,
+    #[serde(default)]
+    pub read_timeout_secs: u64,
+    #[serde(default)]
+    pub write_timeout_secs: u64,
     pub sqlite_path: Option<String>,
     pub ssh: Option<SshConfig>,
     /// 是否设置了密码（明文在钥匙串，不在此结构）。
@@ -66,6 +74,9 @@ pub struct ConnConfigInput {
     pub schema: Option<String>,
     pub ssl_mode: Option<SslMode>,
     pub connect_timeout_secs: Option<u64>,
+    pub keepalive_secs: Option<u64>,
+    pub read_timeout_secs: Option<u64>,
+    pub write_timeout_secs: Option<u64>,
     pub sqlite_path: Option<String>,
     pub ssh: Option<SshConfig>,
     pub ssh_password: Option<String>,
@@ -126,6 +137,9 @@ pub fn save_connection(cred: &CredentialService, input: ConnConfigInput) -> Resu
         schema: input.schema,
         ssl_mode: input.ssl_mode,
         connect_timeout_secs: input.connect_timeout_secs.unwrap_or(10),
+        keepalive_secs: input.keepalive_secs.unwrap_or(0),
+        read_timeout_secs: input.read_timeout_secs.unwrap_or(0),
+        write_timeout_secs: input.write_timeout_secs.unwrap_or(0),
         sqlite_path: input.sqlite_path,
         ssh: input.ssh,
         has_password: input.password.is_some() || prior_has_password,
@@ -191,12 +205,25 @@ pub fn default_port(kind: DbKind) -> u16 {
     }
 }
 
+/// 会话级超时与保活（0 秒 → None 表示不限制）。
+#[derive(Clone, Copy, Default)]
+pub struct SessionTimeouts {
+    /// 保活：每隔该间隔 ping 一次，避免服务端断开空闲连接。
+    pub keepalive: Option<Duration>,
+    /// 读取（结果产出类语句）超时。
+    pub read: Option<Duration>,
+    /// 写入（DML 类语句）超时。
+    pub write: Option<Duration>,
+}
+
 /// 活动会话。
 pub struct Session {
     pub conn_id: String,
     pub adapter: tokio::sync::Mutex<Box<dyn DbAdapter>>,
     pub caps: DbCapabilities,
     pub tunnel: Option<String>,
+    pub read_timeout: Option<Duration>,
+    pub write_timeout: Option<Duration>,
 }
 
 #[derive(Default)]
@@ -219,18 +246,36 @@ impl ConnectionManager {
         cfg: &ConnConfig,
         target: ConnTarget,
         tunnel: Option<String>,
+        timeouts: SessionTimeouts,
     ) -> Result<DbCapabilities> {
         let mut adapter = create_adapter(cfg.kind);
         adapter.connect(&target).await?;
         adapter.ping().await?;
         let caps = adapter.capabilities().clone();
-        let session = Session {
+        let session = Arc::new(Session {
             conn_id: cfg.id.clone(),
             adapter: tokio::sync::Mutex::new(adapter),
             caps: caps.clone(),
             tunnel,
-        };
-        self.sessions.insert(cfg.id.clone(), Arc::new(session));
+            read_timeout: timeouts.read,
+            write_timeout: timeouts.write,
+        });
+
+        // 保活：后台周期 ping。持 Weak，会话被移除（断开）后 upgrade 失败即自动退出。
+        if let Some(interval) = timeouts.keepalive {
+            let weak = Arc::downgrade(&session);
+            tokio::spawn(async move {
+                let mut tick = tokio::time::interval(interval);
+                tick.tick().await; // 跳过立即触发的第一拍
+                loop {
+                    tick.tick().await;
+                    let Some(s) = weak.upgrade() else { break };
+                    let _ = s.adapter.lock().await.ping().await;
+                }
+            });
+        }
+
+        self.sessions.insert(cfg.id.clone(), session);
         Ok(caps)
     }
 
@@ -266,6 +311,9 @@ mod tests {
             schema: Some("public".into()),
             ssl_mode: Some(SslMode::Require),
             connect_timeout_secs: 10,
+            keepalive_secs: 0,
+            read_timeout_secs: 0,
+            write_timeout_secs: 0,
             sqlite_path: None,
             ssh: None,
             has_password: false,

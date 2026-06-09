@@ -10,6 +10,7 @@ import type {
   ChangeSet,
   ResultSet,
   RunResult,
+  RoutineInfo,
   Settings,
   TableInfo,
   TableRef,
@@ -33,6 +34,8 @@ export const ipc = {
     invoke<string[]>("list_schemas", { connId, database }),
   listTables: (connId: string, database: string, schema?: string | null) =>
     invoke<TableInfo[]>("list_tables", { connId, database, schema }),
+  listFunctions: (connId: string, database: string, schema?: string | null) =>
+    invoke<RoutineInfo[]>("list_functions", { connId, database, schema }),
   listColumns: (connId: string, table: TableRef) =>
     invoke<ColumnInfo[]>("list_columns", { connId, table }),
   getTableSchema: (connId: string, table: TableRef) =>
@@ -63,7 +66,8 @@ export const ipc = {
     sql: string,
     page: number,
     pageSize: number,
-  ) => invoke<RunResult[]>("run_sql", { connId, tabId, sql, page, pageSize }),
+    database?: string | null,
+  ) => invoke<RunResult[]>("run_sql", { connId, tabId, sql, page, pageSize, database }),
   cancelQuery: (connId: string, queryId: string) =>
     invoke<void>("cancel_query", { connId, queryId }),
 

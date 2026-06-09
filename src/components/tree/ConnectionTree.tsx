@@ -1,15 +1,15 @@
 // 对象浏览器（TDD §9 / PRD §3.2）：连接管理 + 能力驱动的懒加载树 + 过滤。
 //
-// 层级由 DbCapabilities 决定（不出现 if mysql/pg/sqlite 硬编码）：
-//   - supports_schemas（PG）：连接 → schema → 表（当前连接库内）
-//   - supports_multi_database（MySQL）：连接 → 数据库 → 表
-//   - 其余（SQLite）：连接 → 表
+// 层级（由 DbCapabilities 决定，无 if mysql/pg/sqlite 硬编码）：
+//   - PG（supports_schemas）：连接 → schema → [表/视图/函数/自定义查询] → 项
+//   - MySQL（supports_multi_database）：连接 → 数据库 → [表/视图/函数/自定义查询] → 项
+//   - SQLite：连接 → [表/视图/函数/自定义查询] → 项
 
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { confirm } from "@tauri-apps/plugin-dialog";
 import { ipc } from "@/ipc";
-import type { ConnConfig, DbCapabilities, TableInfo, TableRef } from "@/ipc/types";
+import type { ConnConfig, DbCapabilities, RoutineInfo, TableInfo, TableRef } from "@/ipc/types";
 import { useConnections } from "@/stores";
 import { errorMessage } from "@/lib/error";
 
@@ -70,9 +70,7 @@ export function ConnectionTree({ onOpenTable, onNewConnection, onEditConnection 
           title={t("conn.new")}
           className="ml-auto flex h-6 w-6 items-center justify-center rounded-md bg-emerald-600 text-white hover:bg-emerald-500"
         >
-          <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-            <path d="M7 2v10M2 7h10" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-          </svg>
+          <i className="ri-add-line text-base" />
         </button>
       </div>
 
@@ -118,18 +116,16 @@ function EmptyState({ onNew }: { onNew: () => void }) {
   return (
     <div className="flex flex-col items-center gap-3 px-4 py-12 text-center">
       <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-neutral-800 text-neutral-500">
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
-          <ellipse cx="12" cy="6" rx="7" ry="3" stroke="currentColor" strokeWidth="1.5" />
-          <path d="M5 6v6c0 1.66 3.13 3 7 3s7-1.34 7-3V6M5 12v6c0 1.66 3.13 3 7 3s7-1.34 7-3v-6" stroke="currentColor" strokeWidth="1.5" />
-        </svg>
+        <i className="ri-database-2-line text-2xl" />
       </div>
       <div className="text-sm font-medium text-neutral-300">{t("tree.empty")}</div>
       <div className="text-xs text-neutral-500">{t("tree.emptyHint")}</div>
       <button
         onClick={onNew}
-        className="mt-1 rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-500"
+        className="mt-1 flex items-center gap-1 rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-500"
       >
-        + {t("conn.new")}
+        <i className="ri-add-line" />
+        {t("conn.new")}
       </button>
     </div>
   );
@@ -142,8 +138,8 @@ function Row({
   expanded,
   hasChevron,
   icon,
+  iconColor,
   label,
-  dim,
   trailing,
   actions,
   onClick,
@@ -153,9 +149,9 @@ function Row({
   depth: number;
   expanded?: boolean;
   hasChevron?: boolean;
-  icon: React.ReactNode;
+  icon: string;
+  iconColor?: string;
   label: string;
-  dim?: string;
   trailing?: React.ReactNode;
   actions?: React.ReactNode;
   onClick?: () => void;
@@ -170,13 +166,14 @@ function Row({
       onDoubleClick={onDoubleClick}
       title={title}
     >
-      <span className="w-3 shrink-0 text-[10px] text-neutral-500">
-        {hasChevron ? (expanded ? "▼" : "▶") : ""}
-      </span>
-      <span className="shrink-0 text-neutral-500">{icon}</span>
+      <i
+        className={`ri-arrow-${expanded ? "down" : "right"}-s-line w-3 shrink-0 text-xs text-neutral-500 ${
+          hasChevron ? "" : "opacity-0"
+        }`}
+      />
+      <i className={`${icon} shrink-0 text-[15px] ${iconColor ?? "text-neutral-400"}`} />
       <span className="truncate flex-1 text-neutral-200">{label}</span>
       {actions}
-      {dim && <span className="text-[10px] uppercase text-neutral-600 group-hover:hidden">{dim}</span>}
       {trailing}
     </div>
   );
@@ -185,17 +182,24 @@ function Row({
 function Loading({ depth }: { depth: number }) {
   const { t } = useTranslation();
   return (
-    <div className="py-1 text-xs text-neutral-500" style={{ paddingLeft: 6 + depth * 12 + 18 }}>
+    <div className="py-1 text-xs text-neutral-500" style={{ paddingLeft: 6 + depth * 12 + 22 }}>
       {t("tree.loading")}
     </div>
   );
 }
 
-function Empty({ depth }: { depth: number }) {
-  const { t } = useTranslation();
+function Hint({ depth, text }: { depth: number; text: string }) {
   return (
-    <div className="py-1 text-xs text-neutral-600" style={{ paddingLeft: 6 + depth * 12 + 18 }}>
-      {t("grid.empty")}
+    <div className="py-1 text-xs text-neutral-600" style={{ paddingLeft: 6 + depth * 12 + 22 }}>
+      {text}
+    </div>
+  );
+}
+
+function ErrRow({ depth, msg }: { depth: number; msg: string }) {
+  return (
+    <div className="py-1 text-xs text-red-400" style={{ paddingLeft: 6 + depth * 12 + 22 }} title={msg}>
+      {msg}
     </div>
   );
 }
@@ -243,23 +247,27 @@ function ConnNode({
         depth={0}
         hasChevron
         expanded={expanded}
-        icon={<span className={`block h-2 w-2 rounded-full ${caps ? "bg-emerald-400" : "bg-neutral-600"}`} />}
+        icon="ri-server-line"
+        iconColor={caps ? "text-emerald-400" : "text-neutral-500"}
         label={cfg.name}
-        dim={connecting ? undefined : cfg.kind}
-        trailing={connecting ? <span className="text-[10px] text-neutral-500">{t("conn.connecting")}</span> : undefined}
         title={cfg.name}
         onClick={toggle}
+        trailing={
+          connecting ? (
+            <span className="text-[10px] text-neutral-500">{t("conn.connecting")}</span>
+          ) : (
+            <span className="text-[10px] uppercase text-neutral-600 group-hover:hidden">{cfg.kind}</span>
+          )
+        }
         actions={
           <span className="hidden items-center gap-0.5 group-hover:flex">
-            <IconBtn title={t("conn.edit")} onClick={onEdit}>✎</IconBtn>
-            <IconBtn title={t("conn.delete")} onClick={onDelete}>🗑</IconBtn>
-            {caps && <IconBtn title={t("conn.disconnect")} onClick={onDisconnect}>⏏</IconBtn>}
+            <IconBtn icon="ri-edit-line" title={t("conn.edit")} onClick={onEdit} />
+            <IconBtn icon="ri-delete-bin-line" title={t("conn.delete")} onClick={onDelete} />
+            {caps && <IconBtn icon="ri-shut-down-line" title={t("conn.disconnect")} onClick={onDisconnect} />}
           </span>
         }
       />
-      {expanded && caps && (
-        <CapsChildren cfg={cfg} caps={caps} depth={1} onOpenTable={onOpenTable} />
-      )}
+      {expanded && caps && <CapsChildren cfg={cfg} caps={caps} depth={1} onOpenTable={onOpenTable} />}
     </div>
   );
 }
@@ -276,16 +284,14 @@ function CapsChildren({
   onOpenTable: (connId: string, table: TableRef) => void;
 }) {
   if (caps.supports_schemas) {
-    // PG：列当前连接库的 schema。
     return <SchemaList cfg={cfg} depth={depth} onOpenTable={onOpenTable} />;
   }
   if (caps.supports_multi_database) {
-    // MySQL：列有权限的数据库。
     return <DatabaseList cfg={cfg} depth={depth} onOpenTable={onOpenTable} />;
   }
-  // SQLite：直接列表。
+  // SQLite：无库/schema 层，直接四类。
   return (
-    <TableList
+    <Categories
       connId={cfg.id}
       listDatabase="main"
       listSchema={null}
@@ -309,59 +315,33 @@ function DatabaseList({
   onOpenTable: (connId: string, table: TableRef) => void;
 }) {
   const [dbs, setDbs] = useState<string[] | null>(null);
+  const [err, setErr] = useState<string | null>(null);
   useEffect(() => {
     ipc
       .listDatabases(cfg.id)
       .then((list) => setDbs(list.map((d) => d.name)))
-      .catch(() => setDbs([]));
+      .catch((e) => setErr(errorMessage(e)));
   }, [cfg.id]);
 
+  if (err) return <ErrRow depth={depth} msg={err} />;
   if (dbs === null) return <Loading depth={depth} />;
-  if (dbs.length === 0) return <Empty depth={depth} />;
   return (
     <>
       {dbs.map((db) => (
-        <DatabaseNode key={db} connId={cfg.id} db={db} depth={depth} onOpenTable={onOpenTable} />
-      ))}
-    </>
-  );
-}
-
-function DatabaseNode({
-  connId,
-  db,
-  depth,
-  onOpenTable,
-}: {
-  connId: string;
-  db: string;
-  depth: number;
-  onOpenTable: (connId: string, table: TableRef) => void;
-}) {
-  const [expanded, setExpanded] = useState(false);
-  return (
-    <div>
-      <Row
-        depth={depth}
-        hasChevron
-        expanded={expanded}
-        icon="🗄"
-        label={db}
-        title={db}
-        onClick={() => setExpanded((v) => !v)}
-      />
-      {expanded && (
-        <TableList
-          connId={connId}
+        <ContainerNode
+          key={db}
+          icon="ri-database-2-line"
+          label={db}
+          depth={depth}
+          connId={cfg.id}
           listDatabase={db}
           listSchema={null}
           refDatabase={db}
           refSchema={null}
-          depth={depth + 1}
           onOpenTable={onOpenTable}
         />
-      )}
-    </div>
+      ))}
+    </>
   );
 }
 
@@ -377,33 +357,56 @@ function SchemaList({
   onOpenTable: (connId: string, table: TableRef) => void;
 }) {
   const [schemas, setSchemas] = useState<string[] | null>(null);
+  const [err, setErr] = useState<string | null>(null);
   useEffect(() => {
     ipc
       .listSchemas(cfg.id, cfg.database ?? "")
       .then(setSchemas)
-      .catch(() => setSchemas([]));
+      .catch((e) => setErr(errorMessage(e)));
   }, [cfg.id, cfg.database]);
 
+  if (err) return <ErrRow depth={depth} msg={err} />;
   if (schemas === null) return <Loading depth={depth} />;
-  if (schemas.length === 0) return <Empty depth={depth} />;
   return (
     <>
       {schemas.map((s) => (
-        <SchemaNode key={s} cfg={cfg} schema={s} depth={depth} onOpenTable={onOpenTable} />
+        <ContainerNode
+          key={s}
+          icon="ri-stack-line"
+          label={s}
+          depth={depth}
+          connId={cfg.id}
+          listDatabase={cfg.database ?? ""}
+          listSchema={s}
+          refDatabase={cfg.database}
+          refSchema={s}
+          onOpenTable={onOpenTable}
+        />
       ))}
     </>
   );
 }
 
-function SchemaNode({
-  cfg,
-  schema,
+// 数据库 / schema 容器：展开后是「表/视图/函数/自定义查询」四类。
+function ContainerNode({
+  icon,
+  label,
   depth,
+  connId,
+  listDatabase,
+  listSchema,
+  refDatabase,
+  refSchema,
   onOpenTable,
 }: {
-  cfg: ConnConfig;
-  schema: string;
+  icon: string;
+  label: string;
   depth: number;
+  connId: string;
+  listDatabase: string;
+  listSchema: string | null;
+  refDatabase: string | null;
+  refSchema: string | null;
   onOpenTable: (connId: string, table: TableRef) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
@@ -413,18 +416,19 @@ function SchemaNode({
         depth={depth}
         hasChevron
         expanded={expanded}
-        icon="◫"
-        label={schema}
-        title={schema}
+        icon={icon}
+        iconColor="text-sky-400"
+        label={label}
+        title={label}
         onClick={() => setExpanded((v) => !v)}
       />
       {expanded && (
-        <TableList
-          connId={cfg.id}
-          listDatabase={cfg.database ?? ""}
-          listSchema={schema}
-          refDatabase={cfg.database}
-          refSchema={schema}
+        <Categories
+          connId={connId}
+          listDatabase={listDatabase}
+          listSchema={listSchema}
+          refDatabase={refDatabase}
+          refSchema={refSchema}
           depth={depth + 1}
           onOpenTable={onOpenTable}
         />
@@ -433,17 +437,9 @@ function SchemaNode({
   );
 }
 
-// ---- 表层 -----------------------------------------------------------------
+// ---- 四类分组 -------------------------------------------------------------
 
-function TableList({
-  connId,
-  listDatabase,
-  listSchema,
-  refDatabase,
-  refSchema,
-  depth,
-  onOpenTable,
-}: {
+type CategoryProps = {
   connId: string;
   listDatabase: string;
   listSchema: string | null;
@@ -451,45 +447,121 @@ function TableList({
   refSchema: string | null;
   depth: number;
   onOpenTable: (connId: string, table: TableRef) => void;
-}) {
-  const { t } = useTranslation();
-  const [tables, setTables] = useState<TableInfo[] | null>(null);
-  useEffect(() => {
-    ipc
-      .listTables(connId, listDatabase, listSchema)
-      .then(setTables)
-      .catch(() => setTables([]));
-  }, [connId, listDatabase, listSchema]);
+};
 
-  if (tables === null) return <Loading depth={depth} />;
-  if (tables.length === 0) return <Empty depth={depth} />;
+function Categories(p: CategoryProps) {
+  const { t } = useTranslation();
   return (
     <>
-      {tables.map((tb) => (
-        <Row
-          key={tb.name}
-          depth={depth}
-          icon={<span className="text-neutral-500">{tb.kind === "view" ? "◉" : "▦"}</span>}
-          label={tb.name}
-          title={`${tb.name}（${t("tree.openData")}：双击）`}
-          onDoubleClick={() =>
-            onOpenTable(connId, { database: refDatabase, schema: refSchema, name: tb.name })
-          }
-        />
-      ))}
+      <CategoryNode {...p} kind="tables" icon="ri-table-line" label={t("tree.tables")} />
+      <CategoryNode {...p} kind="views" icon="ri-eye-line" label={t("tree.views")} />
+      <CategoryNode {...p} kind="functions" icon="ri-function-line" label={t("tree.functions")} />
+      <CategoryNode {...p} kind="queries" icon="ri-bookmark-line" label={t("tree.queries")} />
     </>
   );
 }
 
-function IconBtn({
-  title,
-  onClick,
-  children,
-}: {
-  title: string;
-  onClick: () => void;
-  children: React.ReactNode;
-}) {
+function CategoryNode(
+  p: CategoryProps & { kind: "tables" | "views" | "functions" | "queries"; icon: string; label: string },
+) {
+  const { t } = useTranslation();
+  const [expanded, setExpanded] = useState(false);
+  const [tables, setTables] = useState<TableInfo[] | null>(null);
+  const [funcs, setFuncs] = useState<RoutineInfo[] | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  const load = () => {
+    if (p.kind === "tables" || p.kind === "views") {
+      if (tables === null) {
+        ipc
+          .listTables(p.connId, p.listDatabase, p.listSchema)
+          .then(setTables)
+          .catch((e) => setErr(errorMessage(e)));
+      }
+    } else if (p.kind === "functions") {
+      if (funcs === null) {
+        ipc
+          .listFunctions(p.connId, p.listDatabase, p.listSchema)
+          .then(setFuncs)
+          .catch((e) => setErr(errorMessage(e)));
+      }
+    }
+  };
+
+  const toggle = () => {
+    const next = !expanded;
+    setExpanded(next);
+    if (next) load();
+  };
+
+  const cdepth = p.depth + 1;
+  const items =
+    p.kind === "tables"
+      ? tables?.filter((x) => x.kind === "table")
+      : p.kind === "views"
+        ? tables?.filter((x) => x.kind === "view")
+        : undefined;
+
+  return (
+    <div>
+      <Row depth={p.depth} hasChevron expanded={expanded} icon={p.icon} label={p.label} onClick={toggle} />
+      {expanded && (
+        <>
+          {err && <ErrRow depth={cdepth} msg={err} />}
+          {/* 表 / 视图 */}
+          {(p.kind === "tables" || p.kind === "views") &&
+            !err &&
+            (tables === null ? (
+              <Loading depth={cdepth} />
+            ) : items && items.length > 0 ? (
+              items.map((tb) => (
+                <Row
+                  key={tb.name}
+                  depth={cdepth}
+                  icon={p.kind === "views" ? "ri-eye-line" : "ri-table-2-line"}
+                  iconColor="text-neutral-500"
+                  label={tb.name}
+                  title={`${tb.name}（${t("tree.openData")}：双击）`}
+                  onDoubleClick={() =>
+                    p.onOpenTable(p.connId, {
+                      database: p.refDatabase,
+                      schema: p.refSchema,
+                      name: tb.name,
+                    })
+                  }
+                />
+              ))
+            ) : (
+              <Hint depth={cdepth} text={t("grid.empty")} />
+            ))}
+          {/* 函数 */}
+          {p.kind === "functions" &&
+            !err &&
+            (funcs === null ? (
+              <Loading depth={cdepth} />
+            ) : funcs.length > 0 ? (
+              funcs.map((fn) => (
+                <Row
+                  key={fn.name}
+                  depth={cdepth}
+                  icon={fn.kind === "procedure" ? "ri-terminal-box-line" : "ri-function-line"}
+                  iconColor="text-neutral-500"
+                  label={fn.name}
+                  title={fn.name}
+                />
+              ))
+            ) : (
+              <Hint depth={cdepth} text={t("grid.empty")} />
+            ))}
+          {/* 自定义查询（保存的查询，功能待补） */}
+          {p.kind === "queries" && <Hint depth={cdepth} text={t("tree.queriesEmpty")} />}
+        </>
+      )}
+    </div>
+  );
+}
+
+function IconBtn({ icon, title, onClick }: { icon: string; title: string; onClick: () => void }) {
   return (
     <button
       title={title}
@@ -497,9 +569,9 @@ function IconBtn({
         e.stopPropagation();
         onClick();
       }}
-      className="flex h-5 w-5 items-center justify-center rounded text-[11px] text-neutral-400 hover:bg-neutral-700 hover:text-neutral-100"
+      className="flex h-5 w-5 items-center justify-center rounded text-neutral-400 hover:bg-neutral-700 hover:text-neutral-100"
     >
-      {children}
+      <i className={`${icon} text-sm`} />
     </button>
   );
 }

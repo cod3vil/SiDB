@@ -19,6 +19,8 @@ pub struct MySqlAdapter {
     threads: DashMap<String, u64>,
     /// 取消用的连接选项（另开连接执行 KILL）。
     opts: Option<MySqlConnectOptions>,
+    /// 当前池所连的库；切库时据此判断是否需要重建池。
+    current_db: Option<String>,
 }
 
 impl MySqlAdapter {
@@ -29,6 +31,7 @@ impl MySqlAdapter {
                 supports_cancel: true,
                 supports_schemas: false,
                 supports_multi_database: true,
+                supports_use_database: true,
                 param_style: ParamStyle::Question,
                 quote_char: '`',
                 has_rowid_fallback: false,
@@ -36,6 +39,7 @@ impl MySqlAdapter {
             pool: None,
             threads: DashMap::new(),
             opts: None,
+            current_db: None,
         }
     }
 
@@ -60,6 +64,20 @@ fn bytes_value(b: &[u8]) -> Value {
     const PREVIEW: usize = 64;
     let preview_hex = b.iter().take(PREVIEW).map(|x| format!("{x:02x}")).collect();
     Value::Bytes { len: b.len(), preview_hex }
+}
+
+/// 启发式判定一段字节是否应作为文本展示。
+///
+/// MySQL 在结果元数据里给字符串列带上 binary 标志时，sqlx 会把 CHAR/VARCHAR/TEXT
+/// 误报成 VARBINARY/BLOB（二者类型码相同，仅靠 collation 区分，而该标志不可靠）。
+/// 真正的二进制值通常含非空白控制字符或非法 UTF-8；据此回退区分，避免把 VARCHAR
+/// 显示成「(BLOB N bytes)」。
+fn text_from_bytes(b: &[u8]) -> Option<String> {
+    let s = std::str::from_utf8(b).ok()?;
+    if s.chars().any(|c| c.is_control() && !matches!(c, '\t' | '\n' | '\r')) {
+        return None;
+    }
+    Some(s.to_string())
 }
 
 fn decode_row(row: &MySqlRow) -> Result<Vec<Value>> {
@@ -92,7 +110,11 @@ fn decode_cell(row: &MySqlRow, i: usize, kind: &str) -> Result<Value> {
         }
         "Bytes" => {
             let b: Vec<u8> = row.try_get(i).map_err(sql_err)?;
-            bytes_value(&b)
+            // 可能是被 binary 标志误判的文本列；干净 UTF-8 则按文本展示。
+            match text_from_bytes(&b) {
+                Some(s) => Value::Text(s),
+                None => bytes_value(&b),
+            }
         }
         "Date" => {
             let s = string_via_bytes(row, i);
@@ -108,8 +130,8 @@ fn decode_cell(row: &MySqlRow, i: usize, kind: &str) -> Result<Value> {
     Ok(v)
 }
 
-/// MySQL 的 DATE/DATETIME/DECIMAL 可能无法直接 try_get::<String>，
-/// 退化为按原始字节解释为 UTF-8。
+/// MySQL 的 DATE/DATETIME/DECIMAL 以及 information_schema 文本列在 sqlx 二进制协议下
+/// 常被报成 BLOB，无法直接 `try_get::<String>`；退化为按原始字节解释为 UTF-8。
 fn string_via_bytes(row: &MySqlRow, i: usize) -> String {
     if let Ok(s) = row.try_get::<String, _>(i) {
         return s;
@@ -118,6 +140,14 @@ fn string_via_bytes(row: &MySqlRow, i: usize) -> String {
         Ok(b) => String::from_utf8_lossy(&b).into_owned(),
         Err(_) => String::new(),
     }
+}
+
+/// 同 `string_via_bytes`，但 NULL 返回 `None`（用于可空的元数据列）。
+fn opt_string_via_bytes(row: &MySqlRow, i: usize) -> Option<String> {
+    if row.try_get_raw(i).map(|r| sqlx::ValueRef::is_null(&r)).unwrap_or(true) {
+        return None;
+    }
+    Some(string_via_bytes(row, i))
 }
 
 fn bind_params<'q>(
@@ -165,6 +195,7 @@ impl DbAdapter for MySqlAdapter {
             .connect_with(opts.clone())
             .await
             .map_err(AppError::from)?;
+        self.current_db = target.database.clone();
         self.pool = Some(pool);
         self.opts = Some(opts);
         Ok(())
@@ -231,6 +262,35 @@ impl DbAdapter for MySqlAdapter {
             affected_rows: res.rows_affected(),
             last_insert_id: Some(res.last_insert_id() as i64),
         })
+    }
+
+    /// 切换当前库：重建连接池并把库设进连接选项（MySQL `USE` 不被预处理协议支持，
+    /// 改为在连接层指定库）。库未变则不操作，避免无谓重连。
+    async fn use_database(&mut self, db: Option<String>) -> Result<()> {
+        let db = db.filter(|s| !s.is_empty());
+        if self.current_db == db {
+            return Ok(());
+        }
+        let base = self
+            .opts
+            .clone()
+            .ok_or_else(|| AppError::Internal("mysql opts missing".into()))?;
+        let opts = match &db {
+            Some(d) => base.database(d),
+            None => base,
+        };
+        let pool = MySqlPoolOptions::new()
+            .min_connections(0)
+            .max_connections(5)
+            .connect_with(opts.clone())
+            .await
+            .map_err(AppError::from)?;
+        if let Some(old) = self.pool.replace(pool) {
+            old.close().await;
+        }
+        self.opts = Some(opts);
+        self.current_db = db;
+        Ok(())
     }
 
     async fn cancel(&self, query_id: &str) -> Result<()> {
@@ -302,12 +362,46 @@ impl DbAdapter for MySqlAdapter {
         .map_err(AppError::from)?;
         Ok(rows
             .iter()
+            // 按列序号 + 字节容错取值：information_schema 列名大小写不可靠（按名会丢列），
+            // 且文本列在 sqlx 下可能被报成 BLOB（按 String 严格取会报类型不匹配）。
             .filter_map(|r| {
-                let name: String = r.try_get("table_name").ok()?;
-                let ty: String = r.try_get("table_type").unwrap_or_default();
+                let name = string_via_bytes(r, 0);
+                if name.is_empty() {
+                    return None;
+                }
+                let ty = string_via_bytes(r, 1);
                 Some(TableInfo {
                     name,
                     kind: if ty.contains("VIEW") { TableKind::View } else { TableKind::Table },
+                })
+            })
+            .collect())
+    }
+
+    async fn list_functions(&self, db: &str, _schema: Option<&str>) -> Result<Vec<RoutineInfo>> {
+        let rows = sqlx::query(
+            "SELECT routine_name, routine_type FROM information_schema.routines \
+             WHERE routine_schema = ? ORDER BY routine_name",
+        )
+        .bind(db)
+        .fetch_all(self.pool()?)
+        .await
+        .map_err(AppError::from)?;
+        Ok(rows
+            .iter()
+            .filter_map(|r| {
+                let name = string_via_bytes(r, 0);
+                if name.is_empty() {
+                    return None;
+                }
+                let ty = string_via_bytes(r, 1);
+                Some(RoutineInfo {
+                    name,
+                    kind: if ty.eq_ignore_ascii_case("PROCEDURE") {
+                        RoutineKind::Procedure
+                    } else {
+                        RoutineKind::Function
+                    },
                 })
             })
             .collect())
@@ -332,12 +426,16 @@ impl DbAdapter for MySqlAdapter {
         .map_err(AppError::from)?;
         let mut columns = Vec::new();
         for r in &col_rows {
-            let name: String = r.try_get("column_name").map_err(sql_err)?;
-            let db_type: String = r.try_get("column_type").map_err(sql_err)?;
-            let nullable: String = r.try_get("is_nullable").unwrap_or_else(|_| "YES".into());
-            let default: Option<String> = r.try_get("column_default").ok();
-            let key: String = r.try_get("column_key").unwrap_or_default();
-            let comment: Option<String> = r.try_get("column_comment").ok();
+            // 按列序号 + 字节容错（information_schema 列名大小写不可靠、文本列可能为 BLOB）。
+            let name: String = string_via_bytes(r, 0);
+            let db_type: String = string_via_bytes(r, 1);
+            let nullable: String = {
+                let s = string_via_bytes(r, 2);
+                if s.is_empty() { "YES".into() } else { s }
+            };
+            let default: Option<String> = opt_string_via_bytes(r, 3);
+            let key: String = string_via_bytes(r, 4);
+            let comment: Option<String> = opt_string_via_bytes(r, 5);
             columns.push(ColumnInfo {
                 name,
                 value_kind: mysql_kind(&db_type).to_string(),
@@ -361,9 +459,9 @@ impl DbAdapter for MySqlAdapter {
         .map_err(AppError::from)?;
         let mut idx_map: std::collections::BTreeMap<String, (bool, Vec<String>)> = Default::default();
         for r in &idx_rows {
-            let name: String = r.try_get("index_name").map_err(sql_err)?;
-            let col: String = r.try_get("column_name").map_err(sql_err)?;
-            let non_unique: i64 = r.try_get("non_unique").unwrap_or(1);
+            let name: String = string_via_bytes(r, 0);
+            let col: String = string_via_bytes(r, 1);
+            let non_unique: i64 = r.try_get::<i64, _>(2).unwrap_or(1);
             let e = idx_map.entry(name).or_insert((non_unique == 0, Vec::new()));
             e.1.push(col);
         }
@@ -390,10 +488,10 @@ impl DbAdapter for MySqlAdapter {
         .map_err(AppError::from)?;
         let mut fk_map: std::collections::BTreeMap<String, ForeignKeyInfo> = Default::default();
         for r in &fk_rows {
-            let name: String = r.try_get("constraint_name").map_err(sql_err)?;
-            let col: String = r.try_get("column_name").map_err(sql_err)?;
-            let ref_table: String = r.try_get("referenced_table_name").unwrap_or_default();
-            let ref_col: String = r.try_get("referenced_column_name").unwrap_or_default();
+            let name: String = string_via_bytes(r, 0);
+            let col: String = string_via_bytes(r, 1);
+            let ref_table: String = string_via_bytes(r, 2);
+            let ref_col: String = string_via_bytes(r, 3);
             let e = fk_map.entry(name.clone()).or_insert(ForeignKeyInfo {
                 name,
                 columns: Vec::new(),
@@ -418,8 +516,8 @@ impl DbAdapter for MySqlAdapter {
             .fetch_one(self.pool()?)
             .await
             .map_err(AppError::from)?;
-        // 第 2 列是建表语句（表/视图列名不同，按位置取）。
-        row.try_get::<String, _>(1).map_err(sql_err)
+        // 第 2 列是建表语句（表/视图列名不同，按位置取；可能被报成 BLOB，故字节容错）。
+        Ok(string_via_bytes(&row, 1))
     }
 
     async fn row_identifier(&self, t: &TableRef) -> Result<Option<Vec<String>>> {
@@ -450,5 +548,27 @@ impl DbAdapter for MySqlAdapter {
             }
         }
         Ok(None)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn text_from_bytes_accepts_clean_utf8() {
+        assert_eq!(text_from_bytes(b"test").as_deref(), Some("test"));
+        assert_eq!(text_from_bytes("中文".as_bytes()).as_deref(), Some("中文"));
+        // 常见空白可保留。
+        assert_eq!(text_from_bytes(b"a\tb\n").as_deref(), Some("a\tb\n"));
+    }
+
+    #[test]
+    fn text_from_bytes_rejects_binary() {
+        // 非法 UTF-8。
+        assert_eq!(text_from_bytes(&[0xff, 0xfe, 0x00]), None);
+        // 含非空白控制字符（如 NUL）。
+        assert_eq!(text_from_bytes(&[0x01, 0x02, 0x03, 0x04]), None);
+        assert_eq!(text_from_bytes(b"ab\0cd"), None);
     }
 }

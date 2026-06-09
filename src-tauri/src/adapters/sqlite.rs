@@ -26,6 +26,7 @@ impl SqliteAdapter {
                 supports_cancel: true,
                 supports_schemas: false,
                 supports_multi_database: false,
+                supports_use_database: false,
                 param_style: ParamStyle::Question,
                 quote_char: '"',
                 has_rowid_fallback: true,

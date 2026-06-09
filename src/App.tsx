@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ConnectionTree } from "@/components/tree/ConnectionTree";
 import { ConnectionDialog } from "@/components/conn/ConnectionDialog";
+import { TopBar } from "@/components/toolbar/TopBar";
 import { SqlEditor } from "@/components/editor/SqlEditor";
 import { ResultGrid } from "@/components/grid/ResultGrid";
 import { ipc } from "@/ipc";
@@ -10,10 +11,11 @@ import { useConnections } from "@/stores";
 import { errorMessage } from "@/lib/error";
 
 const PAGE_SIZE = 1000;
+const TAB_ID = "tab-1";
 
 export default function App() {
   const { t } = useTranslation();
-  const { setConfigs } = useConnections();
+  const { configs, connected, setConfigs, setConnected } = useConnections();
   const [activeConn, setActiveConn] = useState<string | null>(null);
   const [sql, setSql] = useState("SELECT 1;");
   const [result, setResult] = useState<ResultSet | null>(null);
@@ -22,12 +24,90 @@ export default function App() {
   const [browseTable, setBrowseTable] = useState<TableRef | null>(null);
   const [page, setPage] = useState(0);
 
-  // 连接对话框：null=关闭，{cfg}=编辑，{}=新建
+  // 当前上下文（库 / schema）与下拉数据。
+  const [activeDb, setActiveDb] = useState<string | null>(null);
+  const [activeSchema, setActiveSchema] = useState<string | null>(null);
+  const [databases, setDatabases] = useState<string[]>([]);
+  const [schemas, setSchemas] = useState<string[]>([]);
+  const [tables, setTables] = useState<string[]>([]);
+
   const [dialog, setDialog] = useState<{ cfg: ConnConfig | null } | null>(null);
+
+  const caps = activeConn ? connected[activeConn] : null;
+  const cfg = configs.find((c) => c.id === activeConn) ?? null;
+  const showDb = Boolean(caps?.supports_use_database);
+  const showSchema = Boolean(caps?.supports_schemas);
+
+  // 该上下文下，构造表引用所需的库/schema。
+  const refDatabase = showSchema ? (cfg?.database ?? null) : showDb ? activeDb : null;
+  const refSchema = showSchema ? activeSchema : null;
+  const listDatabase = showSchema ? (cfg?.database ?? "") : showDb ? (activeDb ?? "") : "main";
+
+  // 连接切换：拉库 / schema 列表。
+  useEffect(() => {
+    if (!activeConn || !caps) {
+      setDatabases([]);
+      setSchemas([]);
+      return;
+    }
+    if (caps.supports_use_database) {
+      ipc.listDatabases(activeConn).then((l) => setDatabases(l.map((d) => d.name))).catch(() => setDatabases([]));
+    } else if (caps.supports_schemas) {
+      setDatabases(cfg?.database ? [cfg.database] : []);
+    } else {
+      setDatabases([]);
+    }
+    if (caps.supports_schemas) {
+      ipc
+        .listSchemas(activeConn, cfg?.database ?? "")
+        .then((l) => {
+          setSchemas(l);
+          setActiveSchema((cur) => cur ?? (l.includes("public") ? "public" : l[0] ?? null));
+        })
+        .catch(() => setSchemas([]));
+    } else {
+      setSchemas([]);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeConn, caps?.supports_use_database, caps?.supports_schemas]);
+
+  // 上下文确定后，拉表列表填充工具栏「表」下拉。
+  useEffect(() => {
+    if (!activeConn || !caps) {
+      setTables([]);
+      return;
+    }
+    if (caps.supports_use_database && !activeDb) {
+      setTables([]);
+      return;
+    }
+    ipc
+      .listTables(activeConn, listDatabase, refSchema)
+      .then((l) => setTables(l.map((x) => x.name)))
+      .catch(() => setTables([]));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeConn, activeDb, activeSchema, caps?.supports_use_database, caps?.supports_schemas]);
+
+  const selectConn = async (id: string) => {
+    setError(null);
+    setActiveConn(id);
+    setActiveDb(null);
+    setActiveSchema(null);
+    if (!connected[id]) {
+      try {
+        const c = await ipc.connect(id);
+        setConnected(id, c);
+      } catch (e) {
+        setError(errorMessage(e));
+      }
+    }
+  };
 
   const openTable = async (connId: string, table: TableRef) => {
     setActiveConn(connId);
     setBrowseTable(table);
+    if (table.database) setActiveDb(table.database);
+    if (table.schema) setActiveSchema(table.schema);
     setPage(0);
     setError(null);
     try {
@@ -36,6 +116,11 @@ export default function App() {
     } catch (e) {
       setError(errorMessage(e));
     }
+  };
+
+  const onSelectTable = (name: string) => {
+    if (!activeConn) return;
+    void openTable(activeConn, { database: refDatabase, schema: refSchema, name });
   };
 
   const runSql = async () => {
@@ -47,7 +132,14 @@ export default function App() {
     setError(null);
     setBrowseTable(null);
     try {
-      const results: RunResult[] = await ipc.runSql(activeConn, "tab-1", sql, 0, PAGE_SIZE);
+      const results: RunResult[] = await ipc.runSql(
+        activeConn,
+        TAB_ID,
+        sql,
+        0,
+        PAGE_SIZE,
+        showDb ? activeDb : null,
+      );
       const firstRows = results.find((r) => r.type === "rows") as (ResultSet & { type: "rows" }) | undefined;
       setResult(firstRows ?? null);
     } catch (e) {
@@ -55,6 +147,12 @@ export default function App() {
     } finally {
       setRunning(false);
     }
+  };
+
+  const cancelSql = async () => {
+    if (!activeConn) return;
+    // 取消当前脚本第一条语句（编辑器常见单语句场景）。
+    await ipc.cancelQuery(activeConn, `${TAB_ID}:0`).catch(() => undefined);
   };
 
   const changePage = async (delta: number) => {
@@ -65,15 +163,18 @@ export default function App() {
     setResult(rs);
   };
 
-  const onSaved = (cfg: ConnConfig) => {
+  const onSaved = () => {
     setDialog(null);
     ipc.listConnections().then(setConfigs).catch(() => undefined);
-    void cfg;
   };
+
+  const connOptions = Object.keys(connected)
+    .map((id) => configs.find((c) => c.id === id))
+    .filter((c): c is ConnConfig => Boolean(c))
+    .map((c) => ({ value: c.id, label: c.name }));
 
   return (
     <div className="flex h-screen w-screen flex-col bg-neutral-900 text-neutral-100">
-      {/* 顶部窗口栏（可拖拽） */}
       <header
         data-tauri-drag-region
         className="flex h-9 shrink-0 items-center gap-2 border-b border-neutral-800 bg-neutral-950 px-3"
@@ -86,22 +187,34 @@ export default function App() {
       </header>
 
       <div className="flex min-h-0 flex-1">
-        {/* 左：连接 / 对象树 */}
         <aside className="flex w-64 shrink-0 flex-col border-r border-neutral-800 bg-neutral-950/40">
           <ConnectionTree
-            onOpenTable={(connId, table) => {
-              setActiveConn(connId);
-              void openTable(connId, table);
-            }}
+            onOpenTable={openTable}
             onNewConnection={() => setDialog({ cfg: null })}
-            onEditConnection={(cfg) => setDialog({ cfg })}
+            onEditConnection={(c) => setDialog({ cfg: c })}
           />
         </aside>
 
-        {/* 右：编辑器 + 结果 */}
         <main className="flex min-w-0 flex-1 flex-col">
+          <TopBar
+            connections={connOptions}
+            activeConn={activeConn}
+            onSelectConn={selectConn}
+            databases={databases}
+            activeDb={activeDb}
+            onSelectDb={setActiveDb}
+            schemas={showSchema ? schemas : undefined}
+            activeSchema={activeSchema}
+            onSelectSchema={setActiveSchema}
+            tables={tables}
+            onSelectTable={onSelectTable}
+            running={running}
+            canRun={Boolean(activeConn)}
+            onRun={runSql}
+            onCancel={cancelSql}
+          />
           <div className="h-2/5 min-h-[160px] border-b border-neutral-800">
-            <SqlEditor value={sql} onChange={setSql} onRun={runSql} running={running} />
+            <SqlEditor value={sql} onChange={setSql} onRun={runSql} />
           </div>
           <div className="flex min-h-0 flex-1 flex-col p-2">
             {error && (
@@ -110,19 +223,11 @@ export default function App() {
               </div>
             )}
             {result ? (
-              <ResultGrid
-                result={result}
-                onPrevPage={() => changePage(-1)}
-                onNextPage={() => changePage(1)}
-              />
+              <ResultGrid result={result} onPrevPage={() => changePage(-1)} onNextPage={() => changePage(1)} />
             ) : (
               <div className="flex flex-1 items-center justify-center">
                 <div className="text-center text-sm text-neutral-600">
-                  <div className="mx-auto mb-3 flex h-10 w-10 items-center justify-center rounded-lg bg-neutral-800">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-                      <path d="M4 6h16M4 12h16M4 18h10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-                    </svg>
-                  </div>
+                  <i className="ri-table-line mb-2 block text-3xl text-neutral-700" />
                   {t("grid.welcome")}
                 </div>
               </div>
@@ -131,9 +236,7 @@ export default function App() {
         </main>
       </div>
 
-      {dialog && (
-        <ConnectionDialog initial={dialog.cfg} onClose={() => setDialog(null)} onSaved={onSaved} />
-      )}
+      {dialog && <ConnectionDialog initial={dialog.cfg} onClose={() => setDialog(null)} onSaved={onSaved} />}
     </div>
   );
 }

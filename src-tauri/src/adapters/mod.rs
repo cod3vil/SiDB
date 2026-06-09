@@ -20,6 +20,8 @@ pub struct DbCapabilities {
     pub supports_schemas: bool,
     /// SQLite false。
     pub supports_multi_database: bool,
+    /// 会话内可切换当前数据库（MySQL `USE db`）。PG 单库连接、SQLite 单文件，均为 false。
+    pub supports_use_database: bool,
     pub param_style: ParamStyle,
     /// `` ` `` 或 `"`
     pub quote_char: char,
@@ -69,6 +71,12 @@ pub trait DbAdapter: Send + Sync {
     async fn execute(&self, query_id: &str, sql: &str, params: &[Value]) -> Result<ExecResult>;
     async fn cancel(&self, query_id: &str) -> Result<()>;
 
+    /// 切换后续语句所在的数据库（仅 `supports_use_database` 的方言，如 MySQL）。
+    /// 默认无操作（PG/SQLite）。`None`/空串表示沿用连接默认库。
+    async fn use_database(&mut self, _db: Option<String>) -> Result<()> {
+        Ok(())
+    }
+
     /// 事务化批量执行（数据编辑提交用）。任一失败全部回滚。
     async fn execute_in_transaction(
         &self,
@@ -80,6 +88,10 @@ pub trait DbAdapter: Send + Sync {
     /// 非 PG 返回空。
     async fn list_schemas(&self, db: &str) -> Result<Vec<String>>;
     async fn list_tables(&self, db: &str, schema: Option<&str>) -> Result<Vec<TableInfo>>;
+    /// 函数 / 存储过程。无该概念的方言（SQLite）返回空。
+    async fn list_functions(&self, _db: &str, _schema: Option<&str>) -> Result<Vec<RoutineInfo>> {
+        Ok(Vec::new())
+    }
     async fn table_schema(&self, t: &TableRef) -> Result<TableSchema>;
     async fn table_ddl(&self, t: &TableRef) -> Result<String>;
     /// 行定位列：主键 → 唯一非空索引 → rowid（仅 SQLite）→ None。
@@ -105,6 +117,7 @@ mod tests {
             supports_cancel: true,
             supports_schemas: true,
             supports_multi_database: true,
+            supports_use_database: false,
             param_style: ParamStyle::Dollar,
             quote_char: '"',
             has_rowid_fallback: false,
@@ -117,6 +130,7 @@ mod tests {
             supports_cancel: true,
             supports_schemas: false,
             supports_multi_database: true,
+            supports_use_database: true,
             param_style: ParamStyle::Question,
             quote_char: '`',
             has_rowid_fallback: false,

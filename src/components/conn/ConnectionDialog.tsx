@@ -26,6 +26,11 @@ interface FormState {
   schema: string;
   sslMode: SslMode;
   sqlitePath: string;
+  // 高级（秒，0=不限制）
+  connectTimeout: string;
+  keepalive: string;
+  readTimeout: string;
+  writeTimeout: string;
   sshEnabled: boolean;
   sshHost: string;
   sshPort: string;
@@ -54,6 +59,10 @@ function initState(initial?: ConnConfig | null): FormState {
     schema: "",
     sslMode: "prefer",
     sqlitePath: "",
+    connectTimeout: "10",
+    keepalive: "0",
+    readTimeout: "0",
+    writeTimeout: "0",
     sshEnabled: false,
     sshHost: "",
     sshPort: "22",
@@ -75,6 +84,10 @@ function initState(initial?: ConnConfig | null): FormState {
     schema: initial.schema ?? "",
     sslMode: initial.ssl_mode ?? "prefer",
     sqlitePath: initial.sqlite_path ?? "",
+    connectTimeout: initial.connect_timeout_secs?.toString() ?? "10",
+    keepalive: initial.keepalive_secs?.toString() ?? "0",
+    readTimeout: initial.read_timeout_secs?.toString() ?? "0",
+    writeTimeout: initial.write_timeout_secs?.toString() ?? "0",
     sshEnabled: Boolean(initial.ssh),
     sshHost: initial.ssh?.host ?? "",
     sshPort: initial.ssh?.port?.toString() ?? "22",
@@ -92,6 +105,7 @@ export function ConnectionDialog({ initial, onClose, onSaved }: Props) {
   const [testing, setTesting] = useState(false);
   const [saving, setSaving] = useState(false);
   const [feedback, setFeedback] = useState<{ ok: boolean; msg: string } | null>(null);
+  const [tab, setTab] = useState<"general" | "advanced" | "ssh">("general");
 
   const isSqlite = f.kind === "sqlite";
   const isPg = f.kind === "postgres";
@@ -99,8 +113,15 @@ export function ConnectionDialog({ initial, onClose, onSaved }: Props) {
 
   const pickKind = (kind: DbKind) => {
     setFeedback(null);
+    if (kind === "sqlite" && tab === "ssh") setTab("general");
     set({ kind, ...KIND_DEFAULTS[kind] });
   };
+
+  const tabs: { key: "general" | "advanced" | "ssh"; label: string }[] = [
+    { key: "general", label: t("conn.tabGeneral") },
+    { key: "advanced", label: t("conn.tabAdvanced") },
+    ...(isSqlite ? [] : [{ key: "ssh" as const, label: t("conn.tabSsh") }]),
+  ];
 
   const validate = (): string | null => {
     if (!f.name.trim()) return t("conn.nameRequired");
@@ -135,6 +156,10 @@ export function ConnectionDialog({ initial, onClose, onSaved }: Props) {
       database: f.database.trim() || null,
       schema: isPg ? f.schema.trim() || null : null,
       ssl_mode: isSqlite ? null : f.sslMode,
+      connect_timeout_secs: f.connectTimeout.trim() ? Number(f.connectTimeout) : 10,
+      keepalive_secs: Number(f.keepalive) || 0,
+      read_timeout_secs: Number(f.readTimeout) || 0,
+      write_timeout_secs: Number(f.writeTimeout) || 0,
       sqlite_path: isSqlite ? f.sqlitePath.trim() : null,
       ssh,
       ssh_password: ssh && f.sshAuth === "password" ? f.sshPassword : null,
@@ -145,6 +170,7 @@ export function ConnectionDialog({ initial, onClose, onSaved }: Props) {
   const onTest = async () => {
     const err = validate();
     if (err) {
+      setTab("general");
       setFeedback({ ok: false, msg: err });
       return;
     }
@@ -163,6 +189,7 @@ export function ConnectionDialog({ initial, onClose, onSaved }: Props) {
   const onSave = async () => {
     const err = validate();
     if (err) {
+      setTab("general");
       setFeedback({ ok: false, msg: err });
       return;
     }
@@ -210,81 +237,132 @@ export function ConnectionDialog({ initial, onClose, onSaved }: Props) {
           </h2>
         </div>
 
+        {/* Tab 栏 */}
+        <div className="flex gap-1 border-b border-neutral-700/70 px-4 pt-2">
+          {tabs.map((tb) => (
+            <button
+              key={tb.key}
+              onClick={() => setTab(tb.key)}
+              className={`-mb-px rounded-t-md border-b-2 px-3 py-1.5 text-xs font-medium transition ${
+                tab === tb.key
+                  ? "border-emerald-500 text-neutral-100"
+                  : "border-transparent text-neutral-400 hover:text-neutral-200"
+              }`}
+            >
+              {tb.label}
+            </button>
+          ))}
+        </div>
+
         <div className="px-5 py-4 space-y-3">
-          {/* 类型选择 */}
-          <div className="flex gap-1.5">
-            {KINDS.map((k) => (
-              <button
-                key={k}
-                onClick={() => pickKind(k)}
-                className={`flex-1 rounded-md px-3 py-1.5 text-xs font-medium capitalize transition ${
-                  f.kind === k
-                    ? "bg-emerald-600 text-white"
-                    : "bg-neutral-800 text-neutral-300 hover:bg-neutral-750"
-                }`}
-              >
-                {k}
-              </button>
-            ))}
-          </div>
-
-          <Field label={t("conn.name")}>
-            <Input value={f.name} onChange={(v) => set({ name: v })} placeholder="My Database" autoFocus />
-          </Field>
-
-          {isSqlite ? (
-            <Field label={t("conn.sqlitePath")}>
-              <div className="flex gap-1.5">
-                <Input value={f.sqlitePath} onChange={(v) => set({ sqlitePath: v })} placeholder="/path/to/db.sqlite" />
-                <SmallButton onClick={browseSqlite}>{t("conn.browse")}</SmallButton>
-                <SmallButton onClick={createSqlite}>{t("conn.createFile")}</SmallButton>
-              </div>
-            </Field>
-          ) : (
+          {/* 常规 */}
+          {tab === "general" && (
             <>
-              <div className="flex gap-2">
-                <Field label={t("conn.host")} className="flex-1">
-                  <Input value={f.host} onChange={(v) => set({ host: v })} />
-                </Field>
-                <Field label={t("conn.port")} className="w-24">
-                  <Input value={f.port} onChange={(v) => set({ port: v })} />
-                </Field>
+              <div className="flex gap-1.5">
+                {KINDS.map((k) => (
+                  <button
+                    key={k}
+                    onClick={() => pickKind(k)}
+                    className={`flex-1 rounded-md px-3 py-1.5 text-xs font-medium capitalize transition ${
+                      f.kind === k
+                        ? "bg-emerald-600 text-white"
+                        : "bg-neutral-800 text-neutral-300 hover:bg-neutral-750"
+                    }`}
+                  >
+                    {k}
+                  </button>
+                ))}
               </div>
-              <div className="flex gap-2">
-                <Field label={t("conn.user")} className="flex-1">
-                  <Input value={f.user} onChange={(v) => set({ user: v })} />
-                </Field>
-                <Field
-                  label={`${t("conn.password")}${initial?.has_password ? t("conn.passwordKeep") : ""}`}
-                  className="flex-1"
-                >
-                  <Input type="password" value={f.password} onChange={(v) => set({ password: v })} />
-                </Field>
-              </div>
-              <div className="flex gap-2">
-                <Field label={t("conn.database")} className="flex-1">
-                  <Input
-                    value={f.database}
-                    onChange={(v) => set({ database: v })}
-                    placeholder={t("conn.databaseOptional")}
-                  />
-                </Field>
-                {isPg && (
-                  <Field label={t("conn.schema")} className="flex-1">
-                    <Input value={f.schema} onChange={(v) => set({ schema: v })} />
-                  </Field>
-                )}
-              </div>
-              <Field label={t("conn.sslMode")}>
-                <Select
-                  value={f.sslMode}
-                  onChange={(v) => set({ sslMode: v as SslMode })}
-                  options={["disable", "prefer", "require"]}
-                />
+
+              <Field label={t("conn.name")}>
+                <Input value={f.name} onChange={(v) => set({ name: v })} placeholder="My Database" autoFocus />
               </Field>
 
-              {/* SSH 隧道 */}
-              <label className="flex items-center gap-2 pt-1 text-xs text-neutral-300 cursor-pointer select-none">
+              {isSqlite ? (
+                <Field label={t("conn.sqlitePath")}>
+                  <div className="flex gap-1.5">
+                    <Input value={f.sqlitePath} onChange={(v) => set({ sqlitePath: v })} placeholder="/path/to/db.sqlite" />
+                    <SmallButton onClick={browseSqlite}>{t("conn.browse")}</SmallButton>
+                    <SmallButton onClick={createSqlite}>{t("conn.createFile")}</SmallButton>
+                  </div>
+                </Field>
+              ) : (
+                <>
+                  <div className="flex gap-2">
+                    <Field label={t("conn.host")} className="flex-1">
+                      <Input value={f.host} onChange={(v) => set({ host: v })} />
+                    </Field>
+                    <Field label={t("conn.port")} className="w-24">
+                      <Input value={f.port} onChange={(v) => set({ port: v })} />
+                    </Field>
+                  </div>
+                  <div className="flex gap-2">
+                    <Field label={t("conn.user")} className="flex-1">
+                      <Input value={f.user} onChange={(v) => set({ user: v })} />
+                    </Field>
+                    <Field
+                      label={`${t("conn.password")}${initial?.has_password ? t("conn.passwordKeep") : ""}`}
+                      className="flex-1"
+                    >
+                      <Input type="password" value={f.password} onChange={(v) => set({ password: v })} />
+                    </Field>
+                  </div>
+                  <div className="flex gap-2">
+                    <Field label={t("conn.database")} className="flex-1">
+                      <Input
+                        value={f.database}
+                        onChange={(v) => set({ database: v })}
+                        placeholder={t("conn.databaseOptional")}
+                      />
+                    </Field>
+                    {isPg && (
+                      <Field label={t("conn.schema")} className="flex-1">
+                        <Input value={f.schema} onChange={(v) => set({ schema: v })} />
+                      </Field>
+                    )}
+                  </div>
+                  <Field label={t("conn.sslMode")}>
+                    <Select
+                      value={f.sslMode}
+                      onChange={(v) => set({ sslMode: v as SslMode })}
+                      options={["disable", "prefer", "require"]}
+                    />
+                  </Field>
+                </>
+              )}
+            </>
+          )}
+
+          {/* 高级 */}
+          {tab === "advanced" && (
+            <>
+              <div className="flex gap-2">
+                <Field label={t("conn.connectTimeout")} className="flex-1">
+                  <Input value={f.connectTimeout} onChange={(v) => set({ connectTimeout: v })} />
+                </Field>
+                <Field label={t("conn.keepalive")} className="flex-1">
+                  <Input value={f.keepalive} onChange={(v) => set({ keepalive: v })} />
+                </Field>
+              </div>
+              <div className="flex gap-2">
+                <Field label={t("conn.readTimeout")} className="flex-1">
+                  <Input value={f.readTimeout} onChange={(v) => set({ readTimeout: v })} />
+                </Field>
+                <Field label={t("conn.writeTimeout")} className="flex-1">
+                  <Input value={f.writeTimeout} onChange={(v) => set({ writeTimeout: v })} />
+                </Field>
+              </div>
+              <p className="flex items-center gap-1 text-[11px] text-neutral-500">
+                <i className="ri-information-line" />
+                {t("conn.unlimitedHint")}
+              </p>
+            </>
+          )}
+
+          {/* SSH */}
+          {tab === "ssh" && !isSqlite && (
+            <>
+              <label className="flex items-center gap-2 text-xs text-neutral-300 cursor-pointer select-none">
                 <input
                   type="checkbox"
                   checked={f.sshEnabled}

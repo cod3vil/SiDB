@@ -170,7 +170,13 @@ pub async fn connect(state: State<'_, AppState>, conn_id: String) -> R<DbCapabil
     }
 
     let target = connection::build_target(&state.cred, &cfg, host_override)?;
-    match state.conns.connect(&cfg, target, tunnel_id.clone()).await {
+    let dur = |secs: u64| (secs > 0).then(|| std::time::Duration::from_secs(secs));
+    let timeouts = connection::SessionTimeouts {
+        keepalive: dur(cfg.keepalive_secs),
+        read: dur(cfg.read_timeout_secs),
+        write: dur(cfg.write_timeout_secs),
+    };
+    match state.conns.connect(&cfg, target, tunnel_id.clone(), timeouts).await {
         Ok(caps) => Ok(caps),
         Err(e) => {
             // 连接失败时回收隧道。
@@ -234,6 +240,18 @@ pub async fn list_tables(
 }
 
 #[tauri::command]
+pub async fn list_functions(
+    state: State<'_, AppState>,
+    conn_id: String,
+    database: String,
+    schema: Option<String>,
+) -> R<Vec<RoutineInfo>> {
+    let s = session(&state, &conn_id)?;
+    let a = s.adapter.lock().await;
+    a.list_functions(&database, schema.as_deref()).await
+}
+
+#[tauri::command]
 pub async fn list_columns(
     state: State<'_, AppState>,
     conn_id: String,
@@ -285,7 +303,7 @@ pub async fn open_table_data(
     let sql = query::browse_sql(&s.caps, &table, pg, sort)?;
     let qid = uuid::Uuid::new_v4().to_string();
     let started = std::time::Instant::now();
-    let raw = a.query(&qid, &sql, &[]).await?;
+    let raw = query::with_timeout(s.read_timeout, a.query(&qid, &sql, &[])).await?;
     let returned = raw.rows.len() as u64;
     let editable = metadata::editability(&**a, &table).await?;
     Ok(ResultSet {
@@ -314,11 +332,15 @@ pub async fn run_sql(
     sql: String,
     page: u64,
     page_size: u64,
+    database: Option<String>,
 ) -> R<Vec<RunResult>> {
     let s = session(&state, &conn_id)?;
-    let a = s.adapter.lock().await;
+    let mut a = s.adapter.lock().await;
+    // 编辑器选定的当前库（仅 MySQL 等支持会话切换的方言生效；其余为无操作）。
+    a.use_database(database).await?;
     let pg = Page { page, page_size };
-    let outcomes = query::run_script(&**a, &tab_id, &sql, pg).await?;
+    let outcomes =
+        query::run_script(&**a, &tab_id, &sql, pg, s.read_timeout, s.write_timeout).await?;
     Ok(outcomes
         .into_iter()
         .map(|o| match o {
