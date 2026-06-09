@@ -15,16 +15,20 @@ interface ConnectionsState {
   configs: ConnConfig[];
   connected: Record<string, DbCapabilities>; // connId -> caps
   activeConnId: string | null;
+  /** 递增触发对象树重新拉取（建库/建表后调用）。 */
+  treeVersion: number;
   setConfigs: (c: ConnConfig[]) => void;
   setConnected: (id: string, caps: DbCapabilities) => void;
   setDisconnected: (id: string) => void;
   setActive: (id: string | null) => void;
+  bumpTree: () => void;
 }
 
 export const useConnections = create<ConnectionsState>((set) => ({
   configs: [],
   connected: {},
   activeConnId: null,
+  treeVersion: 0,
   setConfigs: (configs) => set({ configs }),
   setConnected: (id, caps) =>
     set((s) => ({ connected: { ...s.connected, [id]: caps }, activeConnId: id })),
@@ -35,6 +39,7 @@ export const useConnections = create<ConnectionsState>((set) => ({
       return { connected: next };
     }),
   setActive: (activeConnId) => set({ activeConnId }),
+  bumpTree: () => set((s) => ({ treeVersion: s.treeVersion + 1 })),
 }));
 
 // ---- tabsStore：标签页、SQL 草稿、结果集 ---------------------------------

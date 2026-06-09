@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ConnectionTree, type NewObjectType } from "@/components/tree/ConnectionTree";
 import { ConnectionDialog } from "@/components/conn/ConnectionDialog";
+import { NewDatabaseDialog } from "@/components/conn/NewDatabaseDialog";
+import { NewTableDialog } from "@/components/table/NewTableDialog";
 import { TopBar } from "@/components/toolbar/TopBar";
 import { SqlEditor } from "@/components/editor/SqlEditor";
 import { ResultGrid } from "@/components/grid/ResultGrid";
@@ -22,6 +24,8 @@ function scaffoldSql(type: NewObjectType, kind?: string): string {
   switch (type) {
     case "query":
       return "";
+    case "database":
+      return "CREATE DATABASE new_database;";
     case "table":
       return "CREATE TABLE new_table (\n  id INT PRIMARY KEY,\n  name VARCHAR(255) NOT NULL\n);";
     case "view":
@@ -36,7 +40,7 @@ function scaffoldSql(type: NewObjectType, kind?: string): string {
 
 export default function App() {
   const { t, i18n } = useTranslation();
-  const { configs, connected, setConfigs, setConnected } = useConnections();
+  const { configs, connected, setConfigs, setConnected, bumpTree } = useConnections();
   const [activeConn, setActiveConn] = useState<string | null>(null);
   const [sql, setSql] = useState("SELECT 1;");
   const [result, setResult] = useState<ResultSet | null>(null);
@@ -53,6 +57,12 @@ export default function App() {
   const [tables, setTables] = useState<string[]>([]);
 
   const [dialog, setDialog] = useState<{ cfg: ConnConfig | null } | null>(null);
+  const [dbDialog, setDbDialog] = useState<string | null>(null);
+  const [tableDialog, setTableDialog] = useState<{
+    connId: string;
+    database: string | null;
+    schema: string | null;
+  } | null>(null);
 
   const [theme, setThemeState] = useState<Theme>(getTheme);
   const toggleTheme = () => {
@@ -151,13 +161,21 @@ export default function App() {
     void openTable(activeConn, { database: refDatabase, schema: refSchema, name });
   };
 
-  // 右键「新增表/视图/函数/查询」：把 CREATE 模板载入编辑器，并切到该上下文。
+  // 右键新增：库 / 表走可视化弹窗；视图 / 函数 / 查询载入编辑器模板。
   const newObject = (
     connId: string,
     database: string | null,
     schema: string | null,
     type: NewObjectType,
   ) => {
+    if (type === "database") {
+      setDbDialog(connId);
+      return;
+    }
+    if (type === "table") {
+      setTableDialog({ connId, database, schema });
+      return;
+    }
     setActiveConn(connId);
     if (database) setActiveDb(database);
     if (schema) setActiveSchema(schema);
@@ -325,6 +343,34 @@ export default function App() {
       </div>
 
       {dialog && <ConnectionDialog initial={dialog.cfg} onClose={() => setDialog(null)} onSaved={onSaved} />}
+
+      {dbDialog && connected[dbDialog] && (
+        <NewDatabaseDialog
+          connId={dbDialog}
+          kind={configs.find((c) => c.id === dbDialog)?.kind ?? "mysql"}
+          quoteChar={connected[dbDialog].quote_char}
+          onClose={() => setDbDialog(null)}
+          onCreated={() => {
+            setDbDialog(null);
+            bumpTree();
+          }}
+        />
+      )}
+
+      {tableDialog && connected[tableDialog.connId] && (
+        <NewTableDialog
+          connId={tableDialog.connId}
+          kind={configs.find((c) => c.id === tableDialog.connId)?.kind ?? "mysql"}
+          quoteChar={connected[tableDialog.connId].quote_char}
+          database={tableDialog.database}
+          schema={tableDialog.schema}
+          onClose={() => setTableDialog(null)}
+          onCreated={() => {
+            setTableDialog(null);
+            bumpTree();
+          }}
+        />
+      )}
     </div>
   );
 }

@@ -25,7 +25,7 @@ function copyText(s: string) {
   void navigator.clipboard?.writeText(s).catch(() => undefined);
 }
 
-export type NewObjectType = "table" | "view" | "function" | "query";
+export type NewObjectType = "database" | "table" | "view" | "function" | "query";
 
 /** 树操作：避免逐层透传，深层节点经此消费。 */
 const TreeCtx = createContext<{
@@ -257,6 +257,7 @@ function ConnNode({
   onOpenTable: (connId: string, table: TableRef) => void;
 }) {
   const { t } = useTranslation();
+  const { onNewObject } = useContext(TreeCtx);
   const [expanded, setExpanded] = useState(false);
   const [connecting, setConnecting] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
@@ -336,6 +337,14 @@ function ConnNode({
               {t("conn.connect")}
             </ContextMenuItem>
           )}
+          {caps?.supports_multi_database && (
+            <ContextMenuItem
+              icon="ri-database-2-line"
+              onClick={() => onNewObject(cfg.id, null, null, "database")}
+            >
+              {t("tree.newDatabase")}
+            </ContextMenuItem>
+          )}
           <ContextMenuItem
             icon="ri-refresh-line"
             disabled={!caps}
@@ -406,12 +415,13 @@ function DatabaseList({
 }) {
   const [dbs, setDbs] = useState<string[] | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const treeVersion = useConnections((s) => s.treeVersion);
   useEffect(() => {
     ipc
       .listDatabases(cfg.id)
       .then((list) => setDbs(list.map((d) => d.name)))
       .catch((e) => setErr(errorMessage(e)));
-  }, [cfg.id]);
+  }, [cfg.id, treeVersion]);
 
   if (err) return <ErrRow depth={depth} msg={err} />;
   if (dbs === null) return <Loading depth={depth} />;
@@ -448,12 +458,13 @@ function SchemaList({
 }) {
   const [schemas, setSchemas] = useState<string[] | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const treeVersion = useConnections((s) => s.treeVersion);
   useEffect(() => {
     ipc
       .listSchemas(cfg.id, cfg.database ?? "")
       .then(setSchemas)
       .catch((e) => setErr(errorMessage(e)));
-  }, [cfg.id, cfg.database]);
+  }, [cfg.id, cfg.database, treeVersion]);
 
   if (err) return <ErrRow depth={depth} msg={err} />;
   if (schemas === null) return <Loading depth={depth} />;
@@ -579,10 +590,22 @@ function CategoryNode(
 ) {
   const { t } = useTranslation();
   const { onNewObject } = useContext(TreeCtx);
+  const treeVersion = useConnections((s) => s.treeVersion);
   const [expanded, setExpanded] = useState(false);
   const [tables, setTables] = useState<TableInfo[] | null>(null);
   const [funcs, setFuncs] = useState<RoutineInfo[] | null>(null);
   const [err, setErr] = useState<string | null>(null);
+
+  // 建表后（treeVersion 变化）若已展开则重新拉取。
+  useEffect(() => {
+    if (!expanded) return;
+    if (p.kind === "tables" || p.kind === "views") {
+      ipc.listTables(p.connId, p.listDatabase, p.listSchema).then(setTables).catch((e) => setErr(errorMessage(e)));
+    } else if (p.kind === "functions") {
+      ipc.listFunctions(p.connId, p.listDatabase, p.listSchema).then(setFuncs).catch((e) => setErr(errorMessage(e)));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [treeVersion]);
 
   const newMeta: Record<typeof p.kind, { type: NewObjectType; label: string }> = {
     tables: { type: "table", label: t("tree.newTable") },
