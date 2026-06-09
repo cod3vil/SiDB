@@ -1,7 +1,7 @@
 // 中文文案。
 
 export default {
-  app: { title: "DBLite", subtitle: "轻量数据库客户端" },
+  app: { title: "SiDB", subtitle: "轻量数据库客户端" },
   common: {
     cancel: "取消",
     close: "关闭",
@@ -68,15 +68,19 @@ export default {
     openData: "打开数据",
     viewStructure: "查看结构",
     viewDdl: "查看 DDL",
-    newQuery: "新建查询",
+    newQuery: "新增查询",
+    newTable: "新增表",
+    newView: "新增视图",
+    newFunction: "新增函数",
+    copyName: "复制名称",
     loading: "加载中…",
     empty: "还没有连接",
     emptyHint: "新建一个数据库连接开始使用",
     tables: "表",
     views: "视图",
     functions: "函数",
-    queries: "自定义查询",
-    queriesEmpty: "暂无自定义查询",
+    queries: "查询",
+    queriesEmpty: "暂无查询",
   },
   toolbar: {
     connection: "连接",

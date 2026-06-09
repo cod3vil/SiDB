@@ -1,7 +1,7 @@
 // English copy.
 
 export default {
-  app: { title: "DBLite", subtitle: "Lightweight DB Client" },
+  app: { title: "SiDB", subtitle: "Lightweight DB Client" },
   common: {
     cancel: "Cancel",
     close: "Close",
@@ -69,14 +69,18 @@ export default {
     viewStructure: "Structure",
     viewDdl: "View DDL",
     newQuery: "New query",
+    newTable: "New table",
+    newView: "New view",
+    newFunction: "New function",
+    copyName: "Copy name",
     loading: "Loading…",
     empty: "No connections yet",
     emptyHint: "Create a database connection to get started",
     tables: "Tables",
     views: "Views",
     functions: "Functions",
-    queries: "Saved Queries",
-    queriesEmpty: "No saved queries",
+    queries: "Queries",
+    queriesEmpty: "No queries",
   },
   toolbar: {
     connection: "Connection",

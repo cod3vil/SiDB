@@ -358,7 +358,7 @@ export function ConnectionDialog({ initial, onClose, onSaved }: Props) {
                   <Input value={f.writeTimeout} onChange={(v) => set({ writeTimeout: v })} />
                 </Field>
               </div>
-              <p className="flex items-center gap-1 text-[11px] text-neutral-500">
+              <p className="flex items-center gap-1 text-[11px] text-muted-foreground">
                 <i className="ri-information-line" />
                 {t("conn.unlimitedHint")}
               </p>
@@ -422,8 +422,8 @@ export function ConnectionDialog({ initial, onClose, onSaved }: Props) {
             <div
               className={`rounded-md px-3 py-2 text-xs ${
                 feedback.ok
-                  ? "bg-emerald-950/60 text-emerald-300 border border-emerald-800/60"
-                  : "bg-red-950/60 text-red-300 border border-red-800/60"
+                  ? "border border-emerald-600/40 bg-emerald-600/10 text-emerald-600 dark:text-emerald-400"
+                  : "border border-destructive/40 bg-destructive/10 text-destructive"
               }`}
             >
               {feedback.msg}

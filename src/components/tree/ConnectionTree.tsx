@@ -5,21 +5,52 @@
 //   - MySQL（supports_multi_database）：连接 → 数据库 → [表/视图/函数/自定义查询] → 项
 //   - SQLite：连接 → [表/视图/函数/自定义查询] → 项
 
-import { useCallback, useEffect, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { confirm } from "@tauri-apps/plugin-dialog";
 import { ipc } from "@/ipc";
 import type { ConnConfig, DbCapabilities, RoutineInfo, TableInfo, TableRef } from "@/ipc/types";
 import { useConnections } from "@/stores";
 import { errorMessage } from "@/lib/error";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu";
+
+/** 复制到剪贴板（webview 安全上下文）。 */
+function copyText(s: string) {
+  void navigator.clipboard?.writeText(s).catch(() => undefined);
+}
+
+export type NewObjectType = "table" | "view" | "function" | "query";
+
+/** 树操作：避免逐层透传，深层节点经此消费。 */
+const TreeCtx = createContext<{
+  onShowDdl: (connId: string, table: TableRef) => void;
+  onNewObject: (connId: string, database: string | null, schema: string | null, type: NewObjectType) => void;
+}>({
+  onShowDdl: () => undefined,
+  onNewObject: () => undefined,
+});
 
 interface Props {
   onOpenTable: (connId: string, table: TableRef) => void;
+  onShowDdl: (connId: string, table: TableRef) => void;
+  onNewObject: (connId: string, database: string | null, schema: string | null, type: NewObjectType) => void;
   onNewConnection: () => void;
   onEditConnection: (cfg: ConnConfig) => void;
 }
 
-export function ConnectionTree({ onOpenTable, onNewConnection, onEditConnection }: Props) {
+export function ConnectionTree({
+  onOpenTable,
+  onShowDdl,
+  onNewObject,
+  onNewConnection,
+  onEditConnection,
+}: Props) {
   const { t } = useTranslation();
   const { configs, connected, setConfigs, setConnected, setDisconnected } = useConnections();
   const [filter, setFilter] = useState("");
@@ -61,8 +92,8 @@ export function ConnectionTree({ onOpenTable, onNewConnection, onEditConnection 
 
   return (
     <div className="flex flex-col h-full text-sm">
-      <div className="flex items-center gap-2 px-3 py-2 border-b border-neutral-800">
-        <span className="text-xs font-semibold uppercase tracking-wide text-neutral-400">
+      <div className="flex items-center gap-2 px-3 py-2 border-b border-border">
+        <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
           {t("conn.connect")}
         </span>
         <button
@@ -76,7 +107,7 @@ export function ConnectionTree({ onOpenTable, onNewConnection, onEditConnection 
 
       {configs.length > 0 && (
         <input
-          className="m-2 rounded-md border border-neutral-700 bg-neutral-800 px-2.5 py-1.5 text-xs text-neutral-100 placeholder:text-neutral-600 outline-none focus:border-emerald-500"
+          className="m-2 rounded-md border border-border bg-muted px-2.5 py-1.5 text-xs text-foreground placeholder:text-muted-foreground/70 outline-none focus:border-emerald-500"
           placeholder={t("tree.filter")}
           value={filter}
           onChange={(e) => setFilter(e.target.value)}
@@ -84,7 +115,7 @@ export function ConnectionTree({ onOpenTable, onNewConnection, onEditConnection 
       )}
 
       {error && (
-        <div className="mx-2 mb-1 rounded-md border border-red-800/60 bg-red-950/50 px-2.5 py-1.5 text-[11px] text-red-300">
+        <div className="mx-2 mb-1 rounded-md border border-destructive/40 bg-destructive/10 px-2.5 py-1.5 text-[11px] text-destructive">
           {error}
         </div>
       )}
@@ -93,18 +124,20 @@ export function ConnectionTree({ onOpenTable, onNewConnection, onEditConnection 
         {configs.length === 0 ? (
           <EmptyState onNew={onNewConnection} />
         ) : (
-          filtered.map((cfg) => (
-            <ConnNode
-              key={cfg.id}
-              cfg={cfg}
-              caps={connected[cfg.id] ?? null}
-              onConnect={() => onConnect(cfg)}
-              onDisconnect={() => onDisconnect(cfg)}
-              onEdit={() => onEditConnection(cfg)}
-              onDelete={() => onDelete(cfg)}
-              onOpenTable={onOpenTable}
-            />
-          ))
+          <TreeCtx.Provider value={{ onShowDdl, onNewObject }}>
+            {filtered.map((cfg) => (
+              <ConnNode
+                key={cfg.id}
+                cfg={cfg}
+                caps={connected[cfg.id] ?? null}
+                onConnect={() => onConnect(cfg)}
+                onDisconnect={() => onDisconnect(cfg)}
+                onEdit={() => onEditConnection(cfg)}
+                onDelete={() => onDelete(cfg)}
+                onOpenTable={onOpenTable}
+              />
+            ))}
+          </TreeCtx.Provider>
         )}
       </div>
     </div>
@@ -115,11 +148,11 @@ function EmptyState({ onNew }: { onNew: () => void }) {
   const { t } = useTranslation();
   return (
     <div className="flex flex-col items-center gap-3 px-4 py-12 text-center">
-      <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-neutral-800 text-neutral-500">
+      <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-muted text-muted-foreground">
         <i className="ri-database-2-line text-2xl" />
       </div>
-      <div className="text-sm font-medium text-neutral-300">{t("tree.empty")}</div>
-      <div className="text-xs text-neutral-500">{t("tree.emptyHint")}</div>
+      <div className="text-sm font-medium text-foreground">{t("tree.empty")}</div>
+      <div className="text-xs text-muted-foreground">{t("tree.emptyHint")}</div>
       <button
         onClick={onNew}
         className="mt-1 flex items-center gap-1 rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-500"
@@ -160,19 +193,19 @@ function Row({
 }) {
   return (
     <div
-      className="group flex items-center gap-1.5 rounded-md py-1 pr-1.5 cursor-pointer hover:bg-neutral-800"
+      className="group flex items-center gap-1.5 rounded-md py-1 pr-1.5 cursor-pointer hover:bg-accent"
       style={{ paddingLeft: 6 + depth * 12 }}
       onClick={onClick}
       onDoubleClick={onDoubleClick}
       title={title}
     >
       <i
-        className={`ri-arrow-${expanded ? "down" : "right"}-s-line w-3 shrink-0 text-xs text-neutral-500 ${
+        className={`ri-arrow-${expanded ? "down" : "right"}-s-line w-3 shrink-0 text-xs text-muted-foreground ${
           hasChevron ? "" : "opacity-0"
         }`}
       />
-      <i className={`${icon} shrink-0 text-[15px] ${iconColor ?? "text-neutral-400"}`} />
-      <span className="truncate flex-1 text-neutral-200">{label}</span>
+      <i className={`${icon} shrink-0 text-[15px] ${iconColor ?? "text-muted-foreground"}`} />
+      <span className="truncate flex-1 text-foreground">{label}</span>
       {actions}
       {trailing}
     </div>
@@ -182,7 +215,7 @@ function Row({
 function Loading({ depth }: { depth: number }) {
   const { t } = useTranslation();
   return (
-    <div className="py-1 text-xs text-neutral-500" style={{ paddingLeft: 6 + depth * 12 + 22 }}>
+    <div className="py-1 text-xs text-muted-foreground" style={{ paddingLeft: 6 + depth * 12 + 22 }}>
       {t("tree.loading")}
     </div>
   );
@@ -190,7 +223,7 @@ function Loading({ depth }: { depth: number }) {
 
 function Hint({ depth, text }: { depth: number; text: string }) {
   return (
-    <div className="py-1 text-xs text-neutral-600" style={{ paddingLeft: 6 + depth * 12 + 22 }}>
+    <div className="py-1 text-xs text-muted-foreground/70" style={{ paddingLeft: 6 + depth * 12 + 22 }}>
       {text}
     </div>
   );
@@ -198,7 +231,7 @@ function Hint({ depth, text }: { depth: number; text: string }) {
 
 function ErrRow({ depth, msg }: { depth: number; msg: string }) {
   return (
-    <div className="py-1 text-xs text-red-400" style={{ paddingLeft: 6 + depth * 12 + 22 }} title={msg}>
+    <div className="py-1 text-xs text-destructive" style={{ paddingLeft: 6 + depth * 12 + 22 }} title={msg}>
       {msg}
     </div>
   );
@@ -226,6 +259,7 @@ function ConnNode({
   const { t } = useTranslation();
   const [expanded, setExpanded] = useState(false);
   const [connecting, setConnecting] = useState(false);
+  const [refreshKey, setRefreshKey] = useState(0);
 
   const toggle = async () => {
     if (!caps) {
@@ -241,33 +275,89 @@ function ConnNode({
     setExpanded((v) => !v);
   };
 
+  const ensureConnected = async () => {
+    if (caps) return true;
+    setConnecting(true);
+    try {
+      await onConnect();
+      return true;
+    } catch {
+      return false;
+    } finally {
+      setConnecting(false);
+    }
+  };
+
   return (
     <div>
-      <Row
-        depth={0}
-        hasChevron
-        expanded={expanded}
-        icon="ri-server-line"
-        iconColor={caps ? "text-emerald-400" : "text-neutral-500"}
-        label={cfg.name}
-        title={cfg.name}
-        onClick={toggle}
-        trailing={
-          connecting ? (
-            <span className="text-[10px] text-neutral-500">{t("conn.connecting")}</span>
+      <ContextMenu>
+        <ContextMenuTrigger asChild>
+          <div>
+            <Row
+              depth={0}
+              hasChevron
+              expanded={expanded}
+              icon="ri-server-line"
+              iconColor={caps ? "text-emerald-400" : "text-muted-foreground"}
+              label={cfg.name}
+              title={cfg.name}
+              onClick={toggle}
+              trailing={
+                connecting ? (
+                  <span className="text-[10px] text-muted-foreground">{t("conn.connecting")}</span>
+                ) : (
+                  <span className="text-[10px] uppercase text-muted-foreground/70 group-hover:hidden">{cfg.kind}</span>
+                )
+              }
+              actions={
+                <span className="hidden items-center gap-0.5 group-hover:flex">
+                  <IconBtn icon="ri-edit-line" title={t("conn.edit")} onClick={onEdit} />
+                  <IconBtn icon="ri-delete-bin-line" title={t("conn.delete")} onClick={onDelete} />
+                  {caps && (
+                    <IconBtn icon="ri-shut-down-line" title={t("conn.disconnect")} onClick={onDisconnect} />
+                  )}
+                </span>
+              }
+            />
+          </div>
+        </ContextMenuTrigger>
+        <ContextMenuContent>
+          {caps ? (
+            <ContextMenuItem icon="ri-shut-down-line" onClick={onDisconnect}>
+              {t("conn.disconnect")}
+            </ContextMenuItem>
           ) : (
-            <span className="text-[10px] uppercase text-neutral-600 group-hover:hidden">{cfg.kind}</span>
-          )
-        }
-        actions={
-          <span className="hidden items-center gap-0.5 group-hover:flex">
-            <IconBtn icon="ri-edit-line" title={t("conn.edit")} onClick={onEdit} />
-            <IconBtn icon="ri-delete-bin-line" title={t("conn.delete")} onClick={onDelete} />
-            {caps && <IconBtn icon="ri-shut-down-line" title={t("conn.disconnect")} onClick={onDisconnect} />}
-          </span>
-        }
-      />
-      {expanded && caps && <CapsChildren cfg={cfg} caps={caps} depth={1} onOpenTable={onOpenTable} />}
+            <ContextMenuItem
+              icon="ri-plug-line"
+              onClick={async () => {
+                if (await ensureConnected()) setExpanded(true);
+              }}
+            >
+              {t("conn.connect")}
+            </ContextMenuItem>
+          )}
+          <ContextMenuItem
+            icon="ri-refresh-line"
+            disabled={!caps}
+            onClick={() => setRefreshKey((k) => k + 1)}
+          >
+            {t("tree.refresh")}
+          </ContextMenuItem>
+          <ContextMenuItem icon="ri-file-copy-line" onClick={() => copyText(cfg.name)}>
+            {t("tree.copyName")}
+          </ContextMenuItem>
+          <ContextMenuSeparator />
+          <ContextMenuItem icon="ri-edit-line" onClick={onEdit}>
+            {t("conn.edit")}
+          </ContextMenuItem>
+          <ContextMenuItem icon="ri-delete-bin-line" destructive onClick={onDelete}>
+            {t("conn.delete")}
+          </ContextMenuItem>
+        </ContextMenuContent>
+      </ContextMenu>
+      {expanded && caps && (
+        <CapsChildren key={refreshKey} cfg={cfg} caps={caps} depth={1} onOpenTable={onOpenTable} />
+      )}
     </div>
   );
 }
@@ -409,21 +499,44 @@ function ContainerNode({
   refSchema: string | null;
   onOpenTable: (connId: string, table: TableRef) => void;
 }) {
+  const { t } = useTranslation();
   const [expanded, setExpanded] = useState(false);
+  const [refreshKey, setRefreshKey] = useState(0);
   return (
     <div>
-      <Row
-        depth={depth}
-        hasChevron
-        expanded={expanded}
-        icon={icon}
-        iconColor="text-sky-400"
-        label={label}
-        title={label}
-        onClick={() => setExpanded((v) => !v)}
-      />
+      <ContextMenu>
+        <ContextMenuTrigger asChild>
+          <div>
+            <Row
+              depth={depth}
+              hasChevron
+              expanded={expanded}
+              icon={icon}
+              iconColor="text-sky-400"
+              label={label}
+              title={label}
+              onClick={() => setExpanded((v) => !v)}
+            />
+          </div>
+        </ContextMenuTrigger>
+        <ContextMenuContent>
+          <ContextMenuItem
+            icon="ri-refresh-line"
+            onClick={() => {
+              setExpanded(true);
+              setRefreshKey((k) => k + 1);
+            }}
+          >
+            {t("tree.refresh")}
+          </ContextMenuItem>
+          <ContextMenuItem icon="ri-file-copy-line" onClick={() => copyText(label)}>
+            {t("tree.copyName")}
+          </ContextMenuItem>
+        </ContextMenuContent>
+      </ContextMenu>
       {expanded && (
         <Categories
+          key={refreshKey}
           connId={connId}
           listDatabase={listDatabase}
           listSchema={listSchema}
@@ -465,10 +578,18 @@ function CategoryNode(
   p: CategoryProps & { kind: "tables" | "views" | "functions" | "queries"; icon: string; label: string },
 ) {
   const { t } = useTranslation();
+  const { onNewObject } = useContext(TreeCtx);
   const [expanded, setExpanded] = useState(false);
   const [tables, setTables] = useState<TableInfo[] | null>(null);
   const [funcs, setFuncs] = useState<RoutineInfo[] | null>(null);
   const [err, setErr] = useState<string | null>(null);
+
+  const newMeta: Record<typeof p.kind, { type: NewObjectType; label: string }> = {
+    tables: { type: "table", label: t("tree.newTable") },
+    views: { type: "view", label: t("tree.newView") },
+    functions: { type: "function", label: t("tree.newFunction") },
+    queries: { type: "query", label: t("tree.newQuery") },
+  };
 
   const load = () => {
     if (p.kind === "tables" || p.kind === "views") {
@@ -504,7 +625,21 @@ function CategoryNode(
 
   return (
     <div>
-      <Row depth={p.depth} hasChevron expanded={expanded} icon={p.icon} label={p.label} onClick={toggle} />
+      <ContextMenu>
+        <ContextMenuTrigger asChild>
+          <div>
+            <Row depth={p.depth} hasChevron expanded={expanded} icon={p.icon} label={p.label} onClick={toggle} />
+          </div>
+        </ContextMenuTrigger>
+        <ContextMenuContent>
+          <ContextMenuItem
+            icon="ri-add-line"
+            onClick={() => onNewObject(p.connId, p.refDatabase, p.refSchema, newMeta[p.kind].type)}
+          >
+            {newMeta[p.kind].label}
+          </ContextMenuItem>
+        </ContextMenuContent>
+      </ContextMenu>
       {expanded && (
         <>
           {err && <ErrRow depth={cdepth} msg={err} />}
@@ -515,20 +650,13 @@ function CategoryNode(
               <Loading depth={cdepth} />
             ) : items && items.length > 0 ? (
               items.map((tb) => (
-                <Row
+                <TableItem
                   key={tb.name}
+                  connId={p.connId}
+                  table={{ database: p.refDatabase, schema: p.refSchema, name: tb.name }}
+                  isView={p.kind === "views"}
                   depth={cdepth}
-                  icon={p.kind === "views" ? "ri-eye-line" : "ri-table-2-line"}
-                  iconColor="text-neutral-500"
-                  label={tb.name}
-                  title={`${tb.name}（${t("tree.openData")}：双击）`}
-                  onDoubleClick={() =>
-                    p.onOpenTable(p.connId, {
-                      database: p.refDatabase,
-                      schema: p.refSchema,
-                      name: tb.name,
-                    })
-                  }
+                  onOpenTable={p.onOpenTable}
                 />
               ))
             ) : (
@@ -545,7 +673,7 @@ function CategoryNode(
                   key={fn.name}
                   depth={cdepth}
                   icon={fn.kind === "procedure" ? "ri-terminal-box-line" : "ri-function-line"}
-                  iconColor="text-neutral-500"
+                  iconColor="text-muted-foreground"
                   label={fn.name}
                   title={fn.name}
                 />
@@ -561,6 +689,52 @@ function CategoryNode(
   );
 }
 
+// 表 / 视图项：双击打开数据；右键菜单 = 打开数据 / 查看 DDL / 复制名称。
+function TableItem({
+  connId,
+  table,
+  isView,
+  depth,
+  onOpenTable,
+}: {
+  connId: string;
+  table: TableRef;
+  isView: boolean;
+  depth: number;
+  onOpenTable: (connId: string, table: TableRef) => void;
+}) {
+  const { t } = useTranslation();
+  const { onShowDdl } = useContext(TreeCtx);
+  return (
+    <ContextMenu>
+      <ContextMenuTrigger asChild>
+        <div>
+          <Row
+            depth={depth}
+            icon={isView ? "ri-eye-line" : "ri-table-2-line"}
+            iconColor="text-muted-foreground"
+            label={table.name}
+            title={`${table.name}（${t("tree.openData")}：双击）`}
+            onDoubleClick={() => onOpenTable(connId, table)}
+          />
+        </div>
+      </ContextMenuTrigger>
+      <ContextMenuContent>
+        <ContextMenuItem icon="ri-table-line" onClick={() => onOpenTable(connId, table)}>
+          {t("tree.openData")}
+        </ContextMenuItem>
+        <ContextMenuItem icon="ri-file-code-line" onClick={() => onShowDdl(connId, table)}>
+          {t("tree.viewDdl")}
+        </ContextMenuItem>
+        <ContextMenuSeparator />
+        <ContextMenuItem icon="ri-file-copy-line" onClick={() => copyText(table.name)}>
+          {t("tree.copyName")}
+        </ContextMenuItem>
+      </ContextMenuContent>
+    </ContextMenu>
+  );
+}
+
 function IconBtn({ icon, title, onClick }: { icon: string; title: string; onClick: () => void }) {
   return (
     <button
@@ -569,7 +743,7 @@ function IconBtn({ icon, title, onClick }: { icon: string; title: string; onClic
         e.stopPropagation();
         onClick();
       }}
-      className="flex h-5 w-5 items-center justify-center rounded text-neutral-400 hover:bg-neutral-700 hover:text-neutral-100"
+      className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
     >
       <i className={`${icon} text-sm`} />
     </button>

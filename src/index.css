@@ -2,11 +2,34 @@
 @tailwind components;
 @tailwind utilities;
 
-/* shadcn 设计 token —— 深色 neutral + emerald 主色，匹配当前紧凑风格。 */
+/* shadcn 设计 token —— emerald 主色。:root=亮色，.dark=暗色（默认应用 .dark）。 */
 :root {
   --surface: #171717;
   --surface-muted: #262626;
 
+  --background: 0 0% 100%;
+  --foreground: 0 0% 12%;
+  --card: 0 0% 98%;
+  --card-foreground: 0 0% 12%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 0 0% 12%;
+  --primary: 158 64% 38%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 0 0% 95%;
+  --secondary-foreground: 0 0% 20%;
+  --muted: 0 0% 95%;
+  --muted-foreground: 0 0% 42%;
+  --accent: 0 0% 91%;
+  --accent-foreground: 0 0% 12%;
+  --destructive: 0 72% 48%;
+  --destructive-foreground: 0 0% 100%;
+  --border: 0 0% 87%;
+  --input: 0 0% 85%;
+  --ring: 158 64% 40%;
+  --radius: 0.5rem;
+}
+
+.dark {
   --background: 0 0% 9%;
   --foreground: 0 0% 92%;
   --card: 0 0% 12%;
@@ -23,10 +46,9 @@
   --accent-foreground: 0 0% 96%;
   --destructive: 0 72% 45%;
   --destructive-foreground: 0 0% 98%;
-  --border: 0 0% 25%;
-  --input: 0 0% 25%;
+  --border: 0 0% 24%;
+  --input: 0 0% 24%;
   --ring: 158 64% 40%;
-  --radius: 0.5rem;
 }
 
 html,
@@ -41,4 +63,6 @@ body {
     Arial, "PingFang SC", "Microsoft YaHei", sans-serif;
   -webkit-font-smoothing: antialiased;
   overflow: hidden;
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
 }

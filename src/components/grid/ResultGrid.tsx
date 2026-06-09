@@ -72,16 +72,16 @@ export function ResultGrid({ result, onPrevPage, onNextPage }: Props) {
 
   return (
     <div className="flex flex-col h-full">
-      <div ref={parentRef} className="flex-1 overflow-auto border border-neutral-700">
+      <div ref={parentRef} className="flex-1 overflow-auto border border-border">
         {/* header */}
         <div
-          className="flex sticky top-0 z-10 bg-neutral-800 text-xs font-semibold text-neutral-200"
+          className="flex sticky top-0 z-10 bg-muted text-xs font-semibold text-foreground"
           style={{ height: ROW_HEIGHT, width: totalWidth }}
         >
           {result.columns.map((c, i) => (
             <div
               key={c.name}
-              className="relative flex items-center border-r border-neutral-700 px-2 whitespace-nowrap"
+              className="relative flex items-center border-r border-border px-2 whitespace-nowrap"
               style={{ width: widthOf(i) }}
               title={`${c.db_type}${c.is_primary_key ? " (PK)" : ""}`}
             >
@@ -113,7 +113,7 @@ export function ResultGrid({ result, onPrevPage, onNextPage }: Props) {
             return (
               <div
                 key={vrow.key}
-                className="absolute left-0 flex text-xs font-mono hover:bg-neutral-800/50"
+                className="absolute left-0 flex text-xs font-mono hover:bg-accent/50"
                 style={{ height: ROW_HEIGHT, width: totalWidth, transform: `translateY(${vrow.start}px)` }}
               >
                 {row.map((v, ci) => {
@@ -121,8 +121,8 @@ export function ResultGrid({ result, onPrevPage, onNextPage }: Props) {
                   return (
                     <div
                       key={ci}
-                      className={`flex items-center border-r border-b border-neutral-800 px-2 truncate ${
-                        r.isNull ? "text-neutral-500 italic" : ""
+                      className={`flex items-center border-r border-b border-border px-2 truncate ${
+                        r.isNull ? "text-muted-foreground italic" : ""
                       } ${r.isBytes || r.isJson ? "text-sky-400" : ""}`}
                       style={{ width: widthOf(ci) }}
                       title={r.text}
@@ -137,12 +137,12 @@ export function ResultGrid({ result, onPrevPage, onNextPage }: Props) {
         </div>
       </div>
       {/* status bar */}
-      <div className="flex items-center gap-3 px-2 py-1 text-xs text-neutral-400 bg-neutral-900 border-t border-neutral-800">
+      <div className="flex items-center gap-3 px-2 py-1 text-xs text-muted-foreground bg-background border-t border-border">
         <span>{t("grid.page", { from, to })}</span>
-        <button className="px-2 hover:text-white disabled:opacity-40" onClick={onPrevPage} disabled={result.page.page === 0}>
+        <button className="px-2 hover:text-foreground disabled:opacity-40" onClick={onPrevPage} disabled={result.page.page === 0}>
           {t("grid.prev")}
         </button>
-        <button className="px-2 hover:text-white disabled:opacity-40" onClick={onNextPage} disabled={!result.page.has_more}>
+        <button className="px-2 hover:text-foreground disabled:opacity-40" onClick={onNextPage} disabled={!result.page.has_more}>
           {t("grid.next")}
         </button>
         <span className="ml-auto">{result.elapsed_ms} ms</span>

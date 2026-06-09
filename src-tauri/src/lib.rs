@@ -48,5 +48,5 @@ pub fn run() {
             commands::ai_test_provider,
         ])
         .run(tauri::generate_context!())
-        .expect("error while running DBLite");
+        .expect("error while running SiDB");
 }

@@ -8,9 +8,10 @@ interface Props {
   onChange: (v: string) => void;
   onRun: (selectedOnly: boolean) => void;
   fontSize?: number;
+  theme?: "light" | "dark";
 }
 
-export function SqlEditor({ value, onChange, onRun, fontSize = 13 }: Props) {
+export function SqlEditor({ value, onChange, onRun, fontSize = 13, theme = "dark" }: Props) {
   const editorRef = useRef<Parameters<OnMount>[0] | null>(null);
 
   const handleMount: OnMount = useCallback(
@@ -29,7 +30,7 @@ export function SqlEditor({ value, onChange, onRun, fontSize = 13 }: Props) {
   return (
     <Editor
       language="sql"
-      theme="vs-dark"
+      theme={theme === "dark" ? "vs-dark" : "vs"}
       value={value}
       onChange={(v) => onChange(v ?? "")}
       onMount={handleMount}
