@@ -151,6 +151,29 @@ export default function App() {
     document.body.style.userSelect = "none";
   };
 
+  // AI 侧栏宽度（可拖左边缘）。
+  const [aiWidth, setAiWidth] = useState(384);
+  const startDragAiWidth = (e: React.MouseEvent) => {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startW = aiWidth;
+    const onMove = (ev: MouseEvent) => {
+      // 手柄在面板左侧：向左拖（clientX 变小）变宽。
+      const next = Math.max(300, Math.min(startW - (ev.clientX - startX), Math.round(window.innerWidth * 0.7)));
+      setAiWidth(next);
+    };
+    const onUp = () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+  };
+
   const activeTab = tabs.find((x) => x.id === activeTabId) ?? tabs[0];
   const updateTab = (id: string, patch: Partial<QueryTab>) =>
     setTabs((ts) => ts.map((x) => (x.id === id ? { ...x, ...patch } : x)));
@@ -279,6 +302,24 @@ export default function App() {
     if (!connId || !caps) return;
     const tables = await listTablesFor(connId, caps, activeTab.db, schema);
     updateTab(tabId, { schema, tables });
+  };
+
+  // 左树点连接 / 库 / schema → 绑定到激活 tab，使工具栏联动（避免"未连接"错误）。
+  const activateContext = async (connId: string, database: string | null, schema: string | null) => {
+    const tabId = activeTabId;
+    const c = await ensureConnected(connId);
+    if (!c) return;
+    const ctx = await loadContext(connId, c, database, schema);
+    updateTab(tabId, {
+      connId,
+      db: database,
+      schema: schema ?? ctx.schema ?? null,
+      databases: ctx.databases,
+      schemas: ctx.schemas,
+      tables: ctx.tables,
+      browseTable: null,
+      error: null,
+    });
   };
 
   const openTable = async (connId: string, table: TableRef) => {
@@ -646,6 +687,7 @@ export default function App() {
             onOpenTable={openTable}
             onShowDdl={showDdl}
             onEditTable={(connId, table) => setEditTableDialog({ connId, table })}
+            onActivate={activateContext}
             onNewObject={newObject}
             onOpenQuery={openSavedQuery}
             onNewConnection={() => setDialog({ cfg: null })}
@@ -797,7 +839,15 @@ export default function App() {
         </main>
 
         {aiOpen && (
+          <div
+            onMouseDown={startDragAiWidth}
+            className="group w-1 shrink-0 cursor-col-resize bg-border transition-colors hover:bg-primary/50"
+            title=""
+          />
+        )}
+        {aiOpen && (
           <AiPanel
+            width={aiWidth}
             connId={activeTab?.connId ?? null}
             database={refDatabase}
             schema={refSchema}

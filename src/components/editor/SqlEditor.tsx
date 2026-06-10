@@ -29,7 +29,10 @@ function selectedOrAll(editor: MonacoEditor): string {
 export function SqlEditor({ value, onChange, onRun, onAiAction, fontSize = 13, theme = "dark" }: Props) {
   const { t } = useTranslation();
   const editorRef = useRef<MonacoEditor | null>(null);
-  // 用 ref 保证 Monaco 动作回调始终最新（编辑器只挂载一次）。
+  // 用 ref 保证 Monaco 回调始终拿到最新的 onRun/onAiAction（编辑器只挂载一次，
+  // 否则 addCommand 会捕获初次渲染的闭包，导致读到过期的 tab.connId 等状态）。
+  const runRef = useRef(onRun);
+  runRef.current = onRun;
   const aiRef = useRef(onAiAction);
   aiRef.current = onAiAction;
 
@@ -40,7 +43,7 @@ export function SqlEditor({ value, onChange, onRun, onAiAction, fontSize = 13, t
       editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, () => {
         const sel = editor.getSelection();
         const hasSel = sel && !sel.isEmpty();
-        onRun(Boolean(hasSel));
+        runRef.current(Boolean(hasSel));
       });
       // AI 右键动作
       editor.addAction({
@@ -65,7 +68,7 @@ export function SqlEditor({ value, onChange, onRun, onAiAction, fontSize = 13, t
       });
     },
     // t 仅用于初次注册菜单标签；语言切换后重启或重挂生效。
-    [onRun, t],
+    [t],
   );
 
   return (

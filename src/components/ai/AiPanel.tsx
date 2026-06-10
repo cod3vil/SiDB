@@ -10,6 +10,7 @@ import { useAi, type ChatTurn } from "@/stores/ai";
 import { cn } from "@/lib/utils";
 
 interface Props {
+  width: number;
   connId: string | null;
   database: string | null;
   schema: string | null;
@@ -73,7 +74,7 @@ function Markdown({
   );
 }
 
-export function AiPanel({ connId, database, schema, table, onInsertSql, onRunSql, onConfirmWrite, onClose }: Props) {
+export function AiPanel({ width, connId, database, schema, table, onInsertSql, onRunSql, onConfirmWrite, onClose }: Props) {
   const { t } = useTranslation();
   const { messages, busy, clear, ask } = useAi();
   const [input, setInput] = useState("");
@@ -111,7 +112,7 @@ export function AiPanel({ connId, database, schema, table, onInsertSql, onRunSql
   };
 
   return (
-    <aside className="flex w-96 shrink-0 flex-col border-l border-border bg-card/40">
+    <aside style={{ width }} className="flex shrink-0 flex-col border-l border-border bg-card/40">
       <div className="flex h-9 shrink-0 items-center gap-2 border-b border-border px-3">
         <i className="ri-sparkling-2-line text-primary" />
         <span className="text-xs font-semibold text-foreground">{t("ai.title")}</span>

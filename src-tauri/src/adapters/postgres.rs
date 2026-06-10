@@ -78,7 +78,7 @@ fn decode_cell(row: &PgRow, i: usize, kind: &str) -> Result<Value> {
     }
     let v = match kind {
         "Bool" => Value::Bool(row.try_get::<bool, _>(i).map_err(sql_err)?),
-        "Int" => Value::Int(row.try_get::<i64, _>(i).map_err(sql_err)?),
+        "Int" => Value::Int(get_int(row, i)?),
         "Float" => Value::Float(row.try_get::<f64, _>(i).map_err(sql_err)?),
         "Decimal" => Value::Decimal(string_via(row, i)),
         "Json" => row
@@ -96,6 +96,27 @@ fn decode_cell(row: &PgRow, i: usize, kind: &str) -> Result<Value> {
         _ => Value::Text(string_via(row, i)),
     };
     Ok(v)
+}
+
+/// 整数列按宽度逐一尝试：bigint→i64、int/serial→i32、smallint→i16。
+/// PG 的 sqlx 解码按 SQL 类型严格匹配，不能用 i64 取 int4（TDD §4 类型映射）。
+fn get_int(row: &PgRow, i: usize) -> Result<i64> {
+    match row.try_get::<i64, _>(i) {
+        Ok(n) => Ok(n),
+        Err(e) => {
+            if let Ok(n) = row.try_get::<i32, _>(i) {
+                return Ok(n as i64);
+            }
+            if let Ok(n) = row.try_get::<i16, _>(i) {
+                return Ok(n as i64);
+            }
+            // oid（u32）等少见整数类型回退为文本，避免解码失败中断整行。
+            if let Ok(o) = row.try_get::<sqlx::postgres::types::Oid, _>(i) {
+                return Ok(o.0 as i64);
+            }
+            Err(sql_err(e))
+        }
+    }
 }
 
 /// 尝试以文本读取（numeric / 时间类型常需经文本保真）。
@@ -117,6 +138,9 @@ fn decode_text_array(row: &PgRow, i: usize) -> Value {
     }
     if let Ok(v) = row.try_get::<Vec<i64>, _>(i) {
         return Value::Array(v.into_iter().map(Value::Int).collect());
+    }
+    if let Ok(v) = row.try_get::<Vec<i32>, _>(i) {
+        return Value::Array(v.into_iter().map(|n| Value::Int(n as i64)).collect());
     }
     Value::Text(string_via(row, i))
 }

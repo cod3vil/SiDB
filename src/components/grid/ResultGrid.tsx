@@ -65,7 +65,20 @@ export function ResultGrid({ result, onGoto, table, onCommit }: Props) {
       const j = row - existingCount;
       setNewRows((rs) => rs.map((r, i) => (i === j ? { ...r, [col]: val } : r)));
     } else {
-      setEdits((prev) => ({ ...prev, [`${row}:${col}`]: val }));
+      // 与原值比较：未改动则不记（并撤销该格可能存在的旧编辑），避免空提交。
+      const ci = result.columns.findIndex((c) => c.name === col);
+      const original = ci >= 0 ? result.rows[row]?.[ci] : undefined;
+      const unchanged = original !== undefined && editText(original) === editStr;
+      const key = `${row}:${col}`;
+      setEdits((prev) => {
+        if (unchanged) {
+          if (!(key in prev)) return prev;
+          const next = { ...prev };
+          delete next[key];
+          return next;
+        }
+        return { ...prev, [key]: val };
+      });
     }
     setEditing(null);
   };

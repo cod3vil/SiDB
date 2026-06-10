@@ -33,11 +33,14 @@ export type NewObjectType = "database" | "table" | "view" | "function" | "query"
 const TreeCtx = createContext<{
   onShowDdl: (connId: string, table: TableRef) => void;
   onEditTable: (connId: string, table: TableRef) => void;
+  /** 绑定查询上下文到当前 tab：点连接/库/schema 时联动右侧工具栏。 */
+  onActivate: (connId: string, database: string | null, schema: string | null) => void;
   onNewObject: (connId: string, database: string | null, schema: string | null, type: NewObjectType) => void;
   onOpenQuery: (connId: string, query: SavedQuery) => void;
 }>({
   onShowDdl: () => undefined,
   onEditTable: () => undefined,
+  onActivate: () => undefined,
   onNewObject: () => undefined,
   onOpenQuery: () => undefined,
 });
@@ -46,6 +49,7 @@ interface Props {
   onOpenTable: (connId: string, table: TableRef) => void;
   onShowDdl: (connId: string, table: TableRef) => void;
   onEditTable: (connId: string, table: TableRef) => void;
+  onActivate: (connId: string, database: string | null, schema: string | null) => void;
   onNewObject: (connId: string, database: string | null, schema: string | null, type: NewObjectType) => void;
   onOpenQuery: (connId: string, query: SavedQuery) => void;
   onNewConnection: () => void;
@@ -56,6 +60,7 @@ export function ConnectionTree({
   onOpenTable,
   onShowDdl,
   onEditTable,
+  onActivate,
   onNewObject,
   onOpenQuery,
   onNewConnection,
@@ -129,7 +134,7 @@ export function ConnectionTree({
         {configs.length === 0 ? (
           <EmptyState onNew={onNewConnection} />
         ) : (
-          <TreeCtx.Provider value={{ onShowDdl, onEditTable, onNewObject, onOpenQuery }}>
+          <TreeCtx.Provider value={{ onShowDdl, onEditTable, onActivate, onNewObject, onOpenQuery }}>
             {filtered.map((cfg) => (
               <ConnNode
                 key={cfg.id}
@@ -263,7 +268,7 @@ function ConnNode({
   onOpenTable: (connId: string, table: TableRef) => void;
 }) {
   const { t } = useTranslation();
-  const { onNewObject } = useContext(TreeCtx);
+  const { onNewObject, onActivate } = useContext(TreeCtx);
   const [expanded, setExpanded] = useState(false);
   const [connecting, setConnecting] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
@@ -279,6 +284,8 @@ function ConnNode({
       }
       setConnecting(false);
     }
+    // 联动右侧工具栏：把当前连接绑定到激活的查询 tab。
+    onActivate(cfg.id, null, null);
     setExpanded((v) => !v);
   };
 
@@ -519,6 +526,7 @@ function ContainerNode({
   onOpenTable: (connId: string, table: TableRef) => void;
 }) {
   const { t } = useTranslation();
+  const { onActivate } = useContext(TreeCtx);
   const [expanded, setExpanded] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
   const [confirming, setConfirming] = useState(false);
@@ -552,7 +560,11 @@ function ContainerNode({
               iconColor="text-sky-400"
               label={label}
               title={label}
-              onClick={() => setExpanded((v) => !v)}
+              onClick={() => {
+                // 联动右侧工具栏：绑定该库/schema 到激活 tab。
+                onActivate(connId, refDatabase, refSchema);
+                setExpanded((v) => !v);
+              }}
             />
           </div>
         </ContextMenuTrigger>
