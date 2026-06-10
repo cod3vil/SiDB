@@ -238,7 +238,7 @@ export function ConnectionDialog({ initial, onClose, onSaved }: Props) {
   const busy = testing || saving;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
       <div
         className="flex h-[560px] max-h-[90vh] w-[460px] flex-col overflow-hidden rounded-xl border border-border bg-card shadow-2xl"
         onClick={(e) => e.stopPropagation()}

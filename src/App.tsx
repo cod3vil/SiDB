@@ -4,9 +4,13 @@ import { ConnectionTree, type NewObjectType } from "@/components/tree/Connection
 import { ConnectionDialog } from "@/components/conn/ConnectionDialog";
 import { NewDatabaseDialog } from "@/components/conn/NewDatabaseDialog";
 import { NewTableDialog } from "@/components/table/NewTableDialog";
+import { EditTableDialog } from "@/components/table/EditTableDialog";
 import { NewViewDialog } from "@/components/table/NewViewDialog";
 import { SaveQueryDialog } from "@/components/query/SaveQueryDialog";
 import { TabBar } from "@/components/tab/TabBar";
+import { Toaster } from "@/components/ui/toaster";
+import { SettingsDialog } from "@/components/settings/SettingsDialog";
+import { AiPanel } from "@/components/ai/AiPanel";
 import { TopBar } from "@/components/toolbar/TopBar";
 import { SqlEditor } from "@/components/editor/SqlEditor";
 import { ResultGrid } from "@/components/grid/ResultGrid";
@@ -21,6 +25,8 @@ import type {
   TableRef,
 } from "@/ipc/types";
 import { useConnections } from "@/stores";
+import { useAi } from "@/stores/ai";
+import { toast } from "@/stores/toast";
 import { errorMessage } from "@/lib/error";
 import { LANGUAGES, setLanguage } from "@/i18n";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -48,6 +54,8 @@ interface QueryTab {
   browseTable: TableRef | null;
   page: number;
   savedQueryId?: string;
+  /** 该 tab 由「新增函数」发起：保存=执行 CREATE FUNCTION 创建函数，而非收藏查询。 */
+  creatingFunction?: boolean;
 }
 
 /** 把表浏览的 ResultSet 包成 RunResult 行结果。 */
@@ -107,8 +115,12 @@ export default function App() {
     database: string | null;
     schema: string | null;
   } | null>(null);
+  const [editTableDialog, setEditTableDialog] = useState<{ connId: string; table: TableRef } | null>(null);
 
   const [saveDialog, setSaveDialog] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const aiOpen = useAi((s) => s.open);
+  const toggleAi = useAi((s) => s.toggle);
 
   const [theme, setThemeState] = useState<Theme>(getTheme);
   const toggleTheme = () => {
@@ -235,7 +247,7 @@ export default function App() {
         c = await ipc.connect(connId);
         setConnected(connId, c);
       } catch (e) {
-        updateTab(activeTabId, { error: errorMessage(e) });
+        toast.error(errorMessage(e));
         return null;
       }
     }
@@ -290,7 +302,7 @@ export default function App() {
       const rs = await ipc.openTableData(connId, table, 0, PAGE_SIZE);
       updateTab(tabId, { results: [rowsResult(rs)], activeResult: 0 });
     } catch (e) {
-      updateTab(tabId, { error: errorMessage(e) });
+      toast.error(errorMessage(e));
     }
   };
 
@@ -320,7 +332,7 @@ export default function App() {
       const ddl = await ipc.getTableDdl(connId, table);
       updateTab(tabId, { sql: ddl });
     } catch (e) {
-      updateTab(tabId, { error: errorMessage(e) });
+      toast.error(errorMessage(e));
     }
   };
 
@@ -348,6 +360,7 @@ export default function App() {
       activeResult: 0,
       browseTable: null,
       error: null,
+      creatingFunction: type === "function",
     });
     void (async () => {
       const c = connected[connId];
@@ -357,13 +370,13 @@ export default function App() {
     })();
   };
 
-  const runSql = async () => {
+  const runSql = async (): Promise<boolean> => {
     const tabId = activeTabId;
     const tab = tabs.find((x) => x.id === tabId);
-    if (!tab) return;
+    if (!tab) return false;
     if (!tab.connId) {
       updateTab(tabId, { error: t("editor.noConn") });
-      return;
+      return false;
     }
     updateTab(tabId, { running: true, error: null, browseTable: null });
     try {
@@ -376,15 +389,92 @@ export default function App() {
         connected[tab.connId]?.supports_use_database ? tab.db : null,
       );
       updateTab(tabId, { results, activeResult: 0, running: false });
+      return true;
     } catch (e) {
       updateTab(tabId, { error: errorMessage(e), running: false });
+      return false;
     }
+  };
+
+  // 「新增函数」状态下的保存：执行 CREATE FUNCTION 创建函数，成功后刷新树。
+  const saveFunction = async () => {
+    const tab = activeTab;
+    if (!tab?.connId) return;
+    const ok = await runSql();
+    if (!ok) return;
+    updateTab(tab.id, { creatingFunction: false });
+    bumpTree();
+    toast.success(t("editor.functionCreated"));
   };
 
   const cancelSql = async () => {
     const tab = activeTab;
     if (!tab?.connId) return;
     await ipc.cancelQuery(tab.connId, `${tab.id}:0`).catch(() => undefined);
+  };
+
+  // 运行给定 SQL 文本（AI 面板「运行」用）：直接执行并回填到编辑器，避免 setState 异步读到旧值。
+  const runText = async (sqlText: string) => {
+    const tabId = activeTabId;
+    const tab = tabs.find((x) => x.id === tabId);
+    if (!tab?.connId) {
+      toast.error(t("editor.noConn"));
+      return;
+    }
+    updateTab(tabId, { sql: sqlText, running: true, error: null, browseTable: null });
+    try {
+      const results = await ipc.runSql(
+        tab.connId,
+        tabId,
+        sqlText,
+        0,
+        PAGE_SIZE,
+        connected[tab.connId]?.supports_use_database ? tab.db : null,
+      );
+      updateTab(tabId, { results, activeResult: 0, running: false });
+    } catch (e) {
+      updateTab(tabId, { error: errorMessage(e), running: false });
+    }
+  };
+
+  // AI 写提案确认执行：失败抛出（面板据此提示并保留卡片）。
+  const aiConfirmWrite = async (proposalId: string) => {
+    const tab = activeTab;
+    if (!tab?.connId) throw new Error("no connection");
+    await ipc.aiConfirmWrite(tab.connId, proposalId);
+    bumpTree();
+    if (tab.browseTable) {
+      const rs = await ipc.openTableData(tab.connId, tab.browseTable, tab.page, PAGE_SIZE);
+      updateTab(tab.id, { results: [rowsResult(rs)], activeResult: 0 });
+    }
+  };
+
+  // ---- 编辑器内联 AI 动作（解释 / 优化 / 报错修复）------------------------
+  // 统一把预置 prompt 送进 AI 侧栏（模型可顺带调 get_schema / EXPLAIN）。
+  const aiAsk = (message: string) => {
+    if (!activeTab?.connId) {
+      toast.error(t("ai.noConn"));
+      return;
+    }
+    useAi.getState().setOpen(true);
+    void useAi.getState().ask(
+      {
+        connId: activeTab.connId,
+        database: refDatabase,
+        schema: refSchema,
+        table: activeTab.browseTable?.name ?? null,
+      },
+      message,
+    );
+  };
+
+  const aiEditorAction = (kind: "explain" | "optimize", sql: string) => {
+    const lead = kind === "explain" ? t("ai.explainPrompt") : t("ai.optimizePrompt");
+    aiAsk(`${lead}\n\n\`\`\`sql\n${sql}\n\`\`\``);
+  };
+
+  const aiFix = (sql: string, error: string) => {
+    aiAsk(`${t("ai.fixPrompt")}\n\nSQL:\n\`\`\`sql\n${sql}\n\`\`\`\n\n${t("ai.fixError")}:\n${error}`);
   };
 
   const gotoPage = async (n: number) => {
@@ -413,8 +503,16 @@ export default function App() {
   // ---- 保存查询 -----------------------------------------------------------
 
   const requestSave = () => {
-    if (activeTab?.connId) setSaveDialog(true);
+    if (!activeTab?.connId) return;
+    if (activeTab.creatingFunction) {
+      void saveFunction();
+      return;
+    }
+    setSaveDialog(true);
   };
+  // 让 Cmd+S 的事件回调始终拿到最新的 requestSave（含最新 tabs/SQL），避免闭包过期。
+  const requestSaveRef = useRef(requestSave);
+  requestSaveRef.current = requestSave;
 
   const doSaveQuery = async (name: string) => {
     const tab = activeTab;
@@ -432,7 +530,7 @@ export default function App() {
       updateTab(tab.id, { savedQueryId: q.id, title: q.name });
       bumpTree();
     } catch (e) {
-      updateTab(tab.id, { error: errorMessage(e) });
+      toast.error(errorMessage(e));
     }
   };
 
@@ -455,7 +553,7 @@ export default function App() {
         c = await ipc.connect(connId);
         setConnected(connId, c);
       } catch (e) {
-        updateTab(tab.id, { error: errorMessage(e) });
+        toast.error(errorMessage(e));
         return;
       }
     }
@@ -468,12 +566,12 @@ export default function App() {
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "s") {
         e.preventDefault();
-        if (activeTab?.connId) setSaveDialog(true);
+        requestSaveRef.current();
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [activeTab?.connId]);
+  }, []);
 
   const onSaved = () => {
     setDialog(null);
@@ -492,7 +590,7 @@ export default function App() {
         className="flex h-9 shrink-0 items-center gap-2 border-b border-border bg-card px-3"
       >
         <div className="flex items-center gap-2">
-          <img src="/logo.png" alt="" className="h-4 w-4 rounded-[4px]" />
+          <img src="/logo.png" alt="" className="h-7 w-7 rounded-md" />
           <span className="text-xs font-semibold tracking-wide text-foreground">{t("app.title")}</span>
           <span className="rounded bg-muted px-1.5 py-px text-[10px] font-medium text-muted-foreground">
             v{version}
@@ -500,6 +598,23 @@ export default function App() {
           <span className="text-[11px] text-muted-foreground/70">{t("app.subtitle")}</span>
         </div>
         <div className="ml-auto flex items-center gap-1">
+          <button
+            onClick={toggleAi}
+            title={t("ai.title")}
+            className={cn(
+              "flex h-6 w-6 items-center justify-center rounded hover:bg-accent hover:text-foreground",
+              aiOpen ? "bg-accent text-primary" : "text-muted-foreground",
+            )}
+          >
+            <i className="ri-sparkling-2-line" />
+          </button>
+          <button
+            onClick={() => setSettingsOpen(true)}
+            title={t("settings.title")}
+            className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
+          >
+            <i className="ri-settings-3-line" />
+          </button>
           <button
             onClick={toggleTheme}
             title={theme === "dark" ? "Light" : "Dark"}
@@ -530,6 +645,7 @@ export default function App() {
           <ConnectionTree
             onOpenTable={openTable}
             onShowDdl={showDdl}
+            onEditTable={(connId, table) => setEditTableDialog({ connId, table })}
             onNewObject={newObject}
             onOpenQuery={openSavedQuery}
             onNewConnection={() => setDialog({ cfg: null })}
@@ -557,6 +673,7 @@ export default function App() {
             activeSchema={activeTab?.schema ?? null}
             onSelectSchema={pickSchema}
             tables={activeTab?.tables ?? []}
+            activeTable={activeTab?.browseTable?.name ?? null}
             onSelectTable={onSelectTable}
             running={Boolean(activeTab?.running)}
             canRun={Boolean(activeTab?.connId)}
@@ -570,6 +687,7 @@ export default function App() {
               value={activeTab?.sql ?? ""}
               onChange={(v) => updateTab(activeTabId, { sql: v })}
               onRun={runSql}
+              onAiAction={aiEditorAction}
               theme={theme}
             />
           </div>
@@ -580,10 +698,27 @@ export default function App() {
           >
             <div className="mx-auto mt-[1px] h-0.5 w-8 rounded-full bg-muted-foreground/30 group-hover:bg-primary-foreground/50" />
           </div>
-          <div className="flex min-h-0 flex-1 flex-col p-2">
+          <div className="relative flex min-h-0 flex-1 flex-col p-2">
+            {/* 已有结果时再查询：右下角小转圈，保留旧结果。无结果时用居中大 loading（见下）。 */}
+            {activeTab?.running && (activeTab?.results?.length ?? 0) > 0 && (
+              <div className="pointer-events-none absolute bottom-2.5 right-3 z-10 flex items-center gap-1.5 rounded-md border border-border bg-card/90 px-2.5 py-1 text-xs text-muted-foreground shadow-sm backdrop-blur-sm">
+                <i className="ri-loader-4-line animate-spin text-primary" />
+                {t("grid.querying")}
+              </div>
+            )}
             {activeTab?.error && (
-              <div className="mb-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-                {activeTab.error}
+              <div className="mb-2 flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                <span className="flex-1 whitespace-pre-wrap">{activeTab.error}</span>
+                {activeTab.connId && (
+                  <button
+                    onClick={() => aiFix(activeTab.sql, activeTab.error ?? "")}
+                    className="flex shrink-0 items-center gap-1 rounded border border-destructive/40 px-1.5 py-0.5 text-xs hover:bg-destructive/10"
+                    title={t("ai.fix")}
+                  >
+                    <i className="ri-sparkling-2-line" />
+                    {t("ai.fix")}
+                  </button>
+                )}
               </div>
             )}
             {(() => {
@@ -591,6 +726,14 @@ export default function App() {
               const ar = activeTab?.activeResult ?? 0;
               const active = results[ar];
               const browseMode = Boolean(activeTab?.browseTable);
+              if (activeTab?.running && results.length === 0) {
+                return (
+                  <div className="flex flex-1 flex-col items-center justify-center gap-2 text-sm text-muted-foreground">
+                    <i className="ri-loader-4-line animate-spin text-2xl text-primary" />
+                    {t("grid.querying")}
+                  </div>
+                );
+              }
               if (results.length === 0) {
                 return (
                   <div className="flex flex-1 items-center justify-center">
@@ -652,9 +795,24 @@ export default function App() {
             })()}
           </div>
         </main>
+
+        {aiOpen && (
+          <AiPanel
+            connId={activeTab?.connId ?? null}
+            database={refDatabase}
+            schema={refSchema}
+            table={activeTab?.browseTable?.name ?? null}
+            onInsertSql={(sql) => updateTab(activeTabId, { sql })}
+            onRunSql={runText}
+            onConfirmWrite={aiConfirmWrite}
+            onClose={toggleAi}
+          />
+        )}
       </div>
 
       {dialog && <ConnectionDialog initial={dialog.cfg} onClose={() => setDialog(null)} onSaved={onSaved} />}
+
+      {settingsOpen && <SettingsDialog onClose={() => setSettingsOpen(false)} />}
 
       {saveDialog && (
         <SaveQueryDialog
@@ -692,6 +850,20 @@ export default function App() {
         />
       )}
 
+      {editTableDialog && connected[editTableDialog.connId] && (
+        <EditTableDialog
+          connId={editTableDialog.connId}
+          kind={configs.find((c) => c.id === editTableDialog.connId)?.kind ?? "mysql"}
+          quoteChar={connected[editTableDialog.connId].quote_char}
+          table={editTableDialog.table}
+          onClose={() => setEditTableDialog(null)}
+          onSaved={() => {
+            setEditTableDialog(null);
+            bumpTree();
+          }}
+        />
+      )}
+
       {viewDialog && connected[viewDialog.connId] && (
         <NewViewDialog
           connId={viewDialog.connId}
@@ -705,6 +877,8 @@ export default function App() {
           }}
         />
       )}
+
+      <Toaster />
     </div>
   );
 }

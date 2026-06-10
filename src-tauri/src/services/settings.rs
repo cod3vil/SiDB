@@ -13,12 +13,13 @@ pub enum Theme {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case")]
 pub struct AiSettings {
     pub provider: String, // "anthropic" | "openai" | "custom"
     pub model: String,
+    #[serde(default)]
     pub base_url: Option<String>,
     /// API Key 存钥匙串，这里只标记是否已配置。
+    #[serde(default)]
     pub key_configured: bool,
 }
 

@@ -25,6 +25,8 @@ pub struct AppState {
     pub conns: ConnectionManager,
     pub cred: CredentialService,
     pub tunnels: TunnelManager,
+    /// AI 写操作提案暂存（经 `ai_confirm_write` 执行）。
+    pub proposals: crate::ai::proposals::ProposalStore,
 }
 
 impl AppState {
@@ -33,6 +35,7 @@ impl AppState {
             conns: ConnectionManager::new(),
             cred: CredentialService::keyring(),
             tunnels: TunnelManager::new(),
+            proposals: crate::ai::proposals::ProposalStore::new(),
         }
     }
 }
@@ -462,4 +465,117 @@ pub async fn ai_test_provider(state: State<'_, AppState>, input: AiProviderInput
             .set(&keys::ai_api_key(&input.provider), &input.api_key)?;
     }
     result
+}
+
+// ---- AI（二期：对话 + 工具循环 + 写提案确认）----------------------------
+
+#[derive(serde::Deserialize)]
+pub struct AiChatMsg {
+    pub role: String,
+    pub text: String,
+}
+
+#[derive(serde::Deserialize)]
+pub struct AiChatInput {
+    pub conn_id: String,
+    pub database: Option<String>,
+    pub schema: Option<String>,
+    pub table: Option<String>,
+    pub history: Vec<AiChatMsg>,
+    pub message: String,
+}
+
+/// 据当前 AiSettings + 钥匙串 key 构造 provider。
+fn build_provider(state: &AppState) -> R<Box<dyn AiProvider>> {
+    let ai = settings::load().ai;
+    let key = state
+        .cred
+        .get(&keys::ai_api_key(&ai.provider))?
+        .filter(|k| !k.is_empty())
+        .ok_or_else(|| AppError::Internal("AI 未配置：请先在设置中填写并测试 API Key".into()))?;
+    let provider: Box<dyn AiProvider> = match ai.provider.as_str() {
+        "anthropic" => Box::new(AnthropicProvider { api_key: key, model: ai.model }),
+        _ => Box::new(OpenAiCompatProvider {
+            api_key: key,
+            model: ai.model,
+            base_url: ai.base_url.unwrap_or_else(|| "https://api.openai.com/v1".into()),
+        }),
+    };
+    Ok(provider)
+}
+
+#[tauri::command]
+pub async fn ai_chat(
+    state: State<'_, AppState>,
+    input: AiChatInput,
+) -> R<crate::ai::agent::TurnResult> {
+    let provider = build_provider(&state)?;
+    // 切换会话当前库到所选库（MySQL 生效；PG/SQLite 无操作），
+    // 让 AI 的裸查询（SELECT DATABASE() / 未限定表名）命中用户选中的数据库而非连接默认库。
+    {
+        let s = session(&state, &input.conn_id)?;
+        let mut a = s.adapter.lock().await;
+        a.use_database(input.database.clone()).await?;
+    }
+    let history: Vec<crate::ai::provider::Msg> = input
+        .history
+        .into_iter()
+        .map(|m| {
+            let role = if m.role == "assistant" { "assistant" } else { "user" };
+            crate::ai::provider::Msg {
+                role: role.into(),
+                content: vec![crate::ai::provider::ContentBlock::Text { text: m.text }],
+            }
+        })
+        .collect();
+    let ctx = crate::ai::tools::ToolCtx {
+        database: input.database,
+        schema: input.schema,
+        table: input.table,
+    };
+    crate::ai::agent::run_turn(
+        provider.as_ref(),
+        &state.conns,
+        &state.proposals,
+        &input.conn_id,
+        ctx,
+        history,
+        input.message,
+    )
+    .await
+}
+
+#[derive(serde::Deserialize)]
+pub struct AiConfirmInput {
+    pub conn_id: String,
+    pub proposal_id: String,
+}
+
+#[tauri::command]
+pub async fn ai_confirm_write(
+    state: State<'_, AppState>,
+    input: AiConfirmInput,
+) -> R<Vec<RunResult>> {
+    let p = state
+        .proposals
+        .take(&input.proposal_id)
+        .ok_or_else(|| AppError::Internal("提案不存在或已过期".into()))?;
+    if p.conn_id != input.conn_id {
+        return Err(AppError::Internal("提案与当前连接不匹配".into()));
+    }
+    let s = session(&state, &input.conn_id)?;
+    let a = s.adapter.lock().await;
+    let pg = Page { page: 0, page_size: 1 };
+    let outcomes =
+        query::run_script(&**a, "ai_write", &p.sql, pg, s.read_timeout, s.write_timeout).await?;
+    crate::ai::audit::record(&input.conn_id, "confirm_write", &p.sql, "executed");
+    Ok(outcomes
+        .into_iter()
+        .map(|o| match o {
+            query::RunOutcome::Rows(rs) => RunResult::Rows(rs),
+            query::RunOutcome::Affected { affected_rows, last_insert_id, elapsed_ms, statement } => {
+                RunResult::Affected { affected_rows, last_insert_id, elapsed_ms, statement }
+            }
+        })
+        .collect())
 }

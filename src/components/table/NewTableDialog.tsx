@@ -4,7 +4,7 @@ import { useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ipc } from "@/ipc";
 import { errorMessage } from "@/lib/error";
-import { qualifiedTable, quoteIdent } from "@/lib/sql";
+import { qualifiedTable, quoteIdent, TYPES } from "@/lib/sql";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -36,12 +36,6 @@ interface Column {
   autoInc: boolean;
   def: string;
 }
-
-const TYPES: Record<string, string[]> = {
-  mysql: ["INT", "BIGINT", "TINYINT", "SMALLINT", "DECIMAL", "FLOAT", "DOUBLE", "VARCHAR", "CHAR", "TEXT", "LONGTEXT", "DATE", "DATETIME", "TIMESTAMP", "TIME", "BOOLEAN", "JSON", "BLOB"],
-  postgres: ["integer", "bigint", "smallint", "serial", "bigserial", "numeric", "real", "double precision", "varchar", "char", "text", "date", "timestamp", "timestamptz", "time", "boolean", "jsonb", "uuid", "bytea"],
-  sqlite: ["INTEGER", "TEXT", "REAL", "NUMERIC", "BLOB"],
-};
 
 export function NewTableDialog({ connId, kind, quoteChar, database, schema, onClose, onCreated }: Props) {
   const { t } = useTranslation();
@@ -102,7 +96,7 @@ export function NewTableDialog({ connId, kind, quoteChar, database, schema, onCl
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
       <div
         className="flex max-h-[88vh] w-[720px] flex-col overflow-hidden rounded-xl border border-border bg-card shadow-2xl"
         onClick={(e) => e.stopPropagation()}

@@ -212,7 +212,7 @@ export function ResultGrid({ result, onGoto, table, onCommit }: Props) {
 
   return (
     <div className="flex flex-col h-full">
-      <div ref={parentRef} className="flex-1 overflow-auto border border-border">
+      <div ref={parentRef} className="relative flex-1 overflow-auto border border-border">
         {/* header */}
         <div
           className="flex sticky top-0 z-10 bg-muted text-xs font-semibold text-foreground"
@@ -309,6 +309,13 @@ export function ResultGrid({ result, onGoto, table, onCommit }: Props) {
             );
           })}
         </div>
+        {/* 空结果：列头保留，中间提示无数据 */}
+        {rowCount === 0 && (
+          <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-2 text-sm text-muted-foreground/60">
+            <i className="ri-inbox-2-line text-3xl text-muted-foreground/30" />
+            {t("grid.empty")}
+          </div>
+        )}
       </div>
       {/* status bar */}
       <div className="flex items-center gap-2 px-2 py-1 text-xs text-muted-foreground bg-background border-t border-border">

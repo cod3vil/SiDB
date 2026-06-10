@@ -58,6 +58,64 @@ body,
   margin: 0;
 }
 
+/* AI 对话 markdown 渲染（紧凑版，沿用主题 token）。 */
+@layer components {
+  .md > :first-child {
+    @apply mt-0;
+  }
+  .md > :last-child {
+    @apply mb-0;
+  }
+  .md p {
+    @apply my-1.5;
+  }
+  .md h1 {
+    @apply mb-1 mt-2.5 text-sm font-semibold;
+  }
+  .md h2 {
+    @apply mb-1 mt-2.5 text-[13px] font-semibold;
+  }
+  .md h3,
+  .md h4 {
+    @apply mb-1 mt-2 text-xs font-semibold;
+  }
+  .md ul {
+    @apply my-1.5 list-disc pl-4;
+  }
+  .md ol {
+    @apply my-1.5 list-decimal pl-4;
+  }
+  .md li {
+    @apply my-0.5;
+  }
+  .md li > ul,
+  .md li > ol {
+    @apply my-0.5;
+  }
+  .md a {
+    @apply text-primary underline underline-offset-2;
+  }
+  .md strong {
+    @apply font-semibold text-foreground;
+  }
+  .md blockquote {
+    @apply my-1.5 border-l-2 border-border pl-2 text-muted-foreground;
+  }
+  .md hr {
+    @apply my-2 border-border;
+  }
+  .md table {
+    @apply my-1.5 block w-max max-w-full border-collapse overflow-x-auto text-[11px];
+  }
+  .md th,
+  .md td {
+    @apply border border-border px-2 py-1 text-left align-top;
+  }
+  .md th {
+    @apply bg-muted font-semibold;
+  }
+}
+
 body {
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue",
     Arial, "PingFang SC", "Microsoft YaHei", sans-serif;

@@ -17,3 +17,23 @@ export function qualifiedTable(
   if (database) return `${quoteIdent(database, quoteChar)}.${quoteIdent(name, quoteChar)}`;
   return quoteIdent(name, quoteChar);
 }
+
+/** 设计器类型下拉候选（建表 / 改表共用）。 */
+export const TYPES: Record<string, string[]> = {
+  mysql: ["INT", "BIGINT", "TINYINT", "SMALLINT", "DECIMAL", "FLOAT", "DOUBLE", "VARCHAR", "CHAR", "TEXT", "LONGTEXT", "DATE", "DATETIME", "TIMESTAMP", "TIME", "BOOLEAN", "JSON", "BLOB"],
+  postgres: ["integer", "bigint", "smallint", "serial", "bigserial", "numeric", "real", "double precision", "varchar", "char", "text", "date", "timestamp", "timestamptz", "time", "boolean", "jsonb", "uuid", "bytea"],
+  sqlite: ["INTEGER", "TEXT", "REAL", "NUMERIC", "BLOB"],
+};
+
+/** 把元数据里的 db_type 拆成「基础类型」和「长度/精度」。
+ *  例：`varchar(255)` → { type: "varchar", length: "255" }；
+ *      `decimal(10,2)` → { type: "decimal", length: "10,2" }；
+ *      `int unsigned` → { type: "int unsigned", length: "" }（无括号则整串作类型）。 */
+export function parseDbType(dbType: string): { type: string; length: string } {
+  const open = dbType.indexOf("(");
+  if (open === -1 || !dbType.trimEnd().endsWith(")")) return { type: dbType.trim(), length: "" };
+  return {
+    type: dbType.slice(0, open).trim(),
+    length: dbType.slice(open + 1, dbType.lastIndexOf(")")).trim(),
+  };
+}

@@ -2,6 +2,8 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import type {
+  AiChatInput,
+  AiChatResult,
   ColumnInfo,
   ConnConfig,
   ConnConfigInput,
@@ -88,13 +90,16 @@ export const ipc = {
   getSettings: () => invoke<Settings>("get_settings"),
   setSettings: (settings: Settings) => invoke<void>("set_settings", { settings }),
 
-  // AI（一期：测试连通）
+  // AI
   aiTestProvider: (input: {
     provider: string;
     api_key: string;
     model: string;
     base_url?: string | null;
   }) => invoke<void>("ai_test_provider", { input }),
+  aiChat: (input: AiChatInput) => invoke<AiChatResult>("ai_chat", { input }),
+  aiConfirmWrite: (connId: string, proposalId: string) =>
+    invoke<RunResult[]>("ai_confirm_write", { input: { conn_id: connId, proposal_id: proposalId } }),
 };
 
 export type { ResultSet, RunResult, ConnConfig, TableRef } from "./types";

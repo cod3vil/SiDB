@@ -205,3 +205,36 @@ export interface Settings {
     key_configured: boolean;
   };
 }
+
+// AI 对话（与 Rust commands::ai_chat / agent::TurnResult 对齐）。
+export interface AiChatMsg {
+  role: "user" | "assistant";
+  text: string;
+}
+
+export interface AiChatInput {
+  conn_id: string;
+  database: string | null;
+  schema: string | null;
+  table: string | null;
+  history: AiChatMsg[];
+  message: string;
+}
+
+/** 一次工具调用的展示摘要。 */
+export interface ToolStep {
+  tool: string;
+  summary: string;
+}
+
+/** 写操作提案（需用户确认）。 */
+export interface ProposalDto {
+  id: string;
+  sql: string;
+}
+
+export interface AiChatResult {
+  reply: string;
+  steps: ToolStep[];
+  proposals: ProposalDto[];
+}

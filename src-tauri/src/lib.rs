@@ -73,6 +73,8 @@ pub fn run() {
             commands::get_settings,
             commands::set_settings,
             commands::ai_test_provider,
+            commands::ai_chat,
+            commands::ai_confirm_write,
         ])
         .run(tauri::generate_context!())
         .expect("error while running SiDB");

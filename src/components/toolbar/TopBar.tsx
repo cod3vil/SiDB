@@ -24,6 +24,7 @@ interface Props {
   onSelectSchema: (s: string) => void;
 
   tables: string[];
+  activeTable: string | null;
   onSelectTable: (name: string) => void;
 
   running: boolean;
@@ -65,7 +66,7 @@ export function TopBar(p: Props) {
       )}
       <Picker
         icon="ri-table-line"
-        value={undefined}
+        value={p.activeTable ?? undefined}
         onChange={p.onSelectTable}
         placeholder={t("toolbar.selectTable")}
         options={p.tables.map((n) => ({ value: n, label: n }))}

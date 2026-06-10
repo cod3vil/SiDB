@@ -1,18 +1,37 @@
 // SQL 编辑器（TDD §9 / PRD §3.3）：Monaco。执行/停止/库选择已上移到顶部工具栏。
+// 右键菜单含 AI 动作（解释 / 优化），作用于选区，无选区则整段。
 
 import { useCallback, useRef } from "react";
+import { useTranslation } from "react-i18next";
 import Editor, { type OnMount } from "@monaco-editor/react";
+
+export type AiEditorAction = "explain" | "optimize";
 
 interface Props {
   value: string;
   onChange: (v: string) => void;
   onRun: (selectedOnly: boolean) => void;
+  onAiAction?: (kind: AiEditorAction, sql: string) => void;
   fontSize?: number;
   theme?: "light" | "dark";
 }
 
-export function SqlEditor({ value, onChange, onRun, fontSize = 13, theme = "dark" }: Props) {
-  const editorRef = useRef<Parameters<OnMount>[0] | null>(null);
+type MonacoEditor = Parameters<OnMount>[0];
+
+/** 选区文本；无选区返回整段。 */
+function selectedOrAll(editor: MonacoEditor): string {
+  const sel = editor.getSelection();
+  const model = editor.getModel();
+  if (sel && !sel.isEmpty() && model) return model.getValueInRange(sel);
+  return editor.getValue();
+}
+
+export function SqlEditor({ value, onChange, onRun, onAiAction, fontSize = 13, theme = "dark" }: Props) {
+  const { t } = useTranslation();
+  const editorRef = useRef<MonacoEditor | null>(null);
+  // 用 ref 保证 Monaco 动作回调始终最新（编辑器只挂载一次）。
+  const aiRef = useRef(onAiAction);
+  aiRef.current = onAiAction;
 
   const handleMount: OnMount = useCallback(
     (editor, monaco) => {
@@ -23,8 +42,30 @@ export function SqlEditor({ value, onChange, onRun, fontSize = 13, theme = "dark
         const hasSel = sel && !sel.isEmpty();
         onRun(Boolean(hasSel));
       });
+      // AI 右键动作
+      editor.addAction({
+        id: "ai-explain-sql",
+        label: t("ai.explain"),
+        contextMenuGroupId: "ai",
+        contextMenuOrder: 1,
+        run: () => {
+          const sql = selectedOrAll(editor).trim();
+          if (sql) aiRef.current?.("explain", sql);
+        },
+      });
+      editor.addAction({
+        id: "ai-optimize-sql",
+        label: t("ai.optimize"),
+        contextMenuGroupId: "ai",
+        contextMenuOrder: 2,
+        run: () => {
+          const sql = selectedOrAll(editor).trim();
+          if (sql) aiRef.current?.("optimize", sql);
+        },
+      });
     },
-    [onRun],
+    // t 仅用于初次注册菜单标签；语言切换后重启或重挂生效。
+    [onRun, t],
   );
 
   return (

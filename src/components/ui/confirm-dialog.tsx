@@ -13,10 +13,7 @@ interface Props {
 export function ConfirmDialog({ message, danger, onCancel, onConfirm }: Props) {
   const { t } = useTranslation();
   return (
-    <div
-      className="fixed inset-0 z-[80] flex items-center justify-center bg-black/60 backdrop-blur-sm"
-      onClick={onCancel}
-    >
+    <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/60 backdrop-blur-sm">
       <div
         className="w-[360px] rounded-xl border border-border bg-card p-5 shadow-2xl"
         onClick={(e) => e.stopPropagation()}

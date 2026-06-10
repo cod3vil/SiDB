@@ -10,7 +10,9 @@ import { useTranslation } from "react-i18next";
 import { ipc } from "@/ipc";
 import type { ConnConfig, DbCapabilities, RoutineInfo, SavedQuery, TableInfo, TableRef } from "@/ipc/types";
 import { useConnections } from "@/stores";
+import { toast } from "@/stores/toast";
 import { errorMessage } from "@/lib/error";
+import { quoteIdent } from "@/lib/sql";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -30,10 +32,12 @@ export type NewObjectType = "database" | "table" | "view" | "function" | "query"
 /** 树操作：避免逐层透传，深层节点经此消费。 */
 const TreeCtx = createContext<{
   onShowDdl: (connId: string, table: TableRef) => void;
+  onEditTable: (connId: string, table: TableRef) => void;
   onNewObject: (connId: string, database: string | null, schema: string | null, type: NewObjectType) => void;
   onOpenQuery: (connId: string, query: SavedQuery) => void;
 }>({
   onShowDdl: () => undefined,
+  onEditTable: () => undefined,
   onNewObject: () => undefined,
   onOpenQuery: () => undefined,
 });
@@ -41,6 +45,7 @@ const TreeCtx = createContext<{
 interface Props {
   onOpenTable: (connId: string, table: TableRef) => void;
   onShowDdl: (connId: string, table: TableRef) => void;
+  onEditTable: (connId: string, table: TableRef) => void;
   onNewObject: (connId: string, database: string | null, schema: string | null, type: NewObjectType) => void;
   onOpenQuery: (connId: string, query: SavedQuery) => void;
   onNewConnection: () => void;
@@ -50,6 +55,7 @@ interface Props {
 export function ConnectionTree({
   onOpenTable,
   onShowDdl,
+  onEditTable,
   onNewObject,
   onOpenQuery,
   onNewConnection,
@@ -58,7 +64,6 @@ export function ConnectionTree({
   const { t } = useTranslation();
   const { configs, connected, setConfigs, setConnected, setDisconnected } = useConnections();
   const [filter, setFilter] = useState("");
-  const [error, setError] = useState<string | null>(null);
   const [pendingDelete, setPendingDelete] = useState<ConnConfig | null>(null);
 
   const reload = useCallback(() => {
@@ -70,12 +75,11 @@ export function ConnectionTree({
   }, [reload]);
 
   const onConnect = async (cfg: ConnConfig) => {
-    setError(null);
     try {
       const caps = await ipc.connect(cfg.id);
       setConnected(cfg.id, caps);
     } catch (e) {
-      setError(errorMessage(e));
+      toast.error(errorMessage(e));
       throw e;
     }
   };
@@ -90,7 +94,7 @@ export function ConnectionTree({
     const cfg = pendingDelete;
     if (!cfg) return;
     setPendingDelete(null);
-    await ipc.deleteConnection(cfg.id).catch((e) => setError(errorMessage(e)));
+    await ipc.deleteConnection(cfg.id).catch((e) => toast.error(errorMessage(e)));
     setDisconnected(cfg.id);
     reload();
   };
@@ -99,7 +103,7 @@ export function ConnectionTree({
 
   return (
     <div className="flex flex-col h-full text-sm">
-      <div className="flex items-center gap-2 px-3 py-2 border-b border-border">
+      <div className="flex h-9 shrink-0 items-center gap-2 px-3 border-b border-border">
         <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
           {t("conn.connect")}
         </span>
@@ -121,17 +125,11 @@ export function ConnectionTree({
         />
       )}
 
-      {error && (
-        <div className="mx-2 mb-1 rounded-md border border-destructive/40 bg-destructive/10 px-2.5 py-1.5 text-[11px] text-destructive">
-          {error}
-        </div>
-      )}
-
       <div className="flex-1 overflow-auto px-1.5 pb-2">
         {configs.length === 0 ? (
           <EmptyState onNew={onNewConnection} />
         ) : (
-          <TreeCtx.Provider value={{ onShowDdl, onNewObject, onOpenQuery }}>
+          <TreeCtx.Provider value={{ onShowDdl, onEditTable, onNewObject, onOpenQuery }}>
             {filtered.map((cfg) => (
               <ConnNode
                 key={cfg.id}
@@ -241,14 +239,6 @@ function Hint({ depth, text }: { depth: number; text: string }) {
   return (
     <div className="py-1 text-xs text-muted-foreground/70" style={{ paddingLeft: 6 + depth * 12 + 22 }}>
       {text}
-    </div>
-  );
-}
-
-function ErrRow({ depth, msg }: { depth: number; msg: string }) {
-  return (
-    <div className="py-1 text-xs text-destructive" style={{ paddingLeft: 6 + depth * 12 + 22 }} title={msg}>
-      {msg}
     </div>
   );
 }
@@ -430,16 +420,17 @@ function DatabaseList({
   onOpenTable: (connId: string, table: TableRef) => void;
 }) {
   const [dbs, setDbs] = useState<string[] | null>(null);
-  const [err, setErr] = useState<string | null>(null);
   const treeVersion = useConnections((s) => s.treeVersion);
   useEffect(() => {
     ipc
       .listDatabases(cfg.id)
       .then((list) => setDbs(list.map((d) => d.name)))
-      .catch((e) => setErr(errorMessage(e)));
+      .catch((e) => {
+        setDbs([]);
+        toast.error(errorMessage(e));
+      });
   }, [cfg.id, treeVersion]);
 
-  if (err) return <ErrRow depth={depth} msg={err} />;
   if (dbs === null) return <Loading depth={depth} />;
   return (
     <>
@@ -473,16 +464,17 @@ function SchemaList({
   onOpenTable: (connId: string, table: TableRef) => void;
 }) {
   const [schemas, setSchemas] = useState<string[] | null>(null);
-  const [err, setErr] = useState<string | null>(null);
   const treeVersion = useConnections((s) => s.treeVersion);
   useEffect(() => {
     ipc
       .listSchemas(cfg.id, cfg.database ?? "")
       .then(setSchemas)
-      .catch((e) => setErr(errorMessage(e)));
+      .catch((e) => {
+        setSchemas([]);
+        toast.error(errorMessage(e));
+      });
   }, [cfg.id, cfg.database, treeVersion]);
 
-  if (err) return <ErrRow depth={depth} msg={err} />;
   if (schemas === null) return <Loading depth={depth} />;
   return (
     <>
@@ -529,6 +521,24 @@ function ContainerNode({
   const { t } = useTranslation();
   const [expanded, setExpanded] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [confirming, setConfirming] = useState(false);
+  const bumpTree = useConnections((s) => s.bumpTree);
+  const quoteChar = useConnections((s) => s.connected[connId]?.quote_char) ?? '"';
+  const isSchema = listSchema !== null; // PG schema 节点 vs MySQL 数据库节点
+
+  const doDelete = async () => {
+    setConfirming(false);
+    const stmt = isSchema
+      ? `DROP SCHEMA ${quoteIdent(label, quoteChar)}`
+      : `DROP DATABASE ${quoteIdent(label, quoteChar)}`;
+    try {
+      await ipc.runSql(connId, "ddl", stmt, 0, 1, null);
+      bumpTree();
+    } catch (e) {
+      toast.error(errorMessage(e));
+    }
+  };
+
   return (
     <div>
       <ContextMenu>
@@ -559,6 +569,10 @@ function ContainerNode({
           <ContextMenuItem icon="ri-file-copy-line" onClick={() => copyText(label)}>
             {t("tree.copyName")}
           </ContextMenuItem>
+          <ContextMenuSeparator />
+          <ContextMenuItem icon="ri-delete-bin-line" destructive onClick={() => setConfirming(true)}>
+            {isSchema ? t("tree.dropSchema") : t("tree.dropDatabase")}
+          </ContextMenuItem>
         </ContextMenuContent>
       </ContextMenu>
       {expanded && (
@@ -571,6 +585,14 @@ function ContainerNode({
           refSchema={refSchema}
           depth={depth + 1}
           onOpenTable={onOpenTable}
+        />
+      )}
+      {confirming && (
+        <ConfirmDialog
+          danger
+          message={t(isSchema ? "tree.dropSchemaConfirm" : "tree.dropDatabaseConfirm", { name: label })}
+          onCancel={() => setConfirming(false)}
+          onConfirm={doDelete}
         />
       )}
     </div>
@@ -611,7 +633,6 @@ function CategoryNode(
   const [tables, setTables] = useState<TableInfo[] | null>(null);
   const [funcs, setFuncs] = useState<RoutineInfo[] | null>(null);
   const [queries, setQueries] = useState<SavedQuery[] | null>(null);
-  const [err, setErr] = useState<string | null>(null);
 
   const loadQueries = () =>
     ipc
@@ -626,15 +647,36 @@ function CategoryNode(
           ),
         ),
       )
-      .catch((e) => setErr(errorMessage(e)));
+      .catch((e) => {
+        setQueries([]);
+        toast.error(errorMessage(e));
+      });
+
+  const loadTables = () =>
+    ipc
+      .listTables(p.connId, p.listDatabase, p.listSchema)
+      .then(setTables)
+      .catch((e) => {
+        setTables([]);
+        toast.error(errorMessage(e));
+      });
+
+  const loadFuncs = () =>
+    ipc
+      .listFunctions(p.connId, p.listDatabase, p.listSchema)
+      .then(setFuncs)
+      .catch((e) => {
+        setFuncs([]);
+        toast.error(errorMessage(e));
+      });
 
   // 建表 / 保存查询后（treeVersion 变化）若已展开则重新拉取。
   useEffect(() => {
     if (!expanded) return;
     if (p.kind === "tables" || p.kind === "views") {
-      ipc.listTables(p.connId, p.listDatabase, p.listSchema).then(setTables).catch((e) => setErr(errorMessage(e)));
+      void loadTables();
     } else if (p.kind === "functions") {
-      ipc.listFunctions(p.connId, p.listDatabase, p.listSchema).then(setFuncs).catch((e) => setErr(errorMessage(e)));
+      void loadFuncs();
     } else if (p.kind === "queries") {
       void loadQueries();
     }
@@ -650,19 +692,9 @@ function CategoryNode(
 
   const load = () => {
     if (p.kind === "tables" || p.kind === "views") {
-      if (tables === null) {
-        ipc
-          .listTables(p.connId, p.listDatabase, p.listSchema)
-          .then(setTables)
-          .catch((e) => setErr(errorMessage(e)));
-      }
+      if (tables === null) void loadTables();
     } else if (p.kind === "functions") {
-      if (funcs === null) {
-        ipc
-          .listFunctions(p.connId, p.listDatabase, p.listSchema)
-          .then(setFuncs)
-          .catch((e) => setErr(errorMessage(e)));
-      }
+      if (funcs === null) void loadFuncs();
     } else if (p.kind === "queries") {
       if (queries === null) void loadQueries();
     }
@@ -672,6 +704,14 @@ function CategoryNode(
     const next = !expanded;
     setExpanded(next);
     if (next) load();
+  };
+
+  // 刷新：展开并无条件重新拉取本类列表。
+  const refresh = () => {
+    setExpanded(true);
+    if (p.kind === "tables" || p.kind === "views") void loadTables();
+    else if (p.kind === "functions") void loadFuncs();
+    else void loadQueries();
   };
 
   const cdepth = p.depth + 1;
@@ -697,14 +737,15 @@ function CategoryNode(
           >
             {newMeta[p.kind].label}
           </ContextMenuItem>
+          <ContextMenuItem icon="ri-refresh-line" onClick={refresh}>
+            {t("tree.refresh")}
+          </ContextMenuItem>
         </ContextMenuContent>
       </ContextMenu>
       {expanded && (
         <>
-          {err && <ErrRow depth={cdepth} msg={err} />}
           {/* 表 / 视图 */}
           {(p.kind === "tables" || p.kind === "views") &&
-            !err &&
             (tables === null ? (
               <Loading depth={cdepth} />
             ) : items && items.length > 0 ? (
@@ -723,7 +764,6 @@ function CategoryNode(
             ))}
           {/* 函数 */}
           {p.kind === "functions" &&
-            !err &&
             (funcs === null ? (
               <Loading depth={cdepth} />
             ) : funcs.length > 0 ? (
@@ -742,7 +782,6 @@ function CategoryNode(
             ))}
           {/* 保存的查询 */}
           {p.kind === "queries" &&
-            !err &&
             (queries === null ? (
               <Loading depth={cdepth} />
             ) : queries.length > 0 ? (
@@ -818,7 +857,7 @@ function QueryItem({
   );
 }
 
-// 表 / 视图项：双击打开数据；右键菜单 = 打开数据 / 查看 DDL / 复制名称。
+// 表 / 视图项：单击打开数据；右键菜单 = 打开数据 / 查看 DDL / 复制名称。
 function TableItem({
   connId,
   table,
@@ -833,7 +872,7 @@ function TableItem({
   onOpenTable: (connId: string, table: TableRef) => void;
 }) {
   const { t } = useTranslation();
-  const { onShowDdl } = useContext(TreeCtx);
+  const { onShowDdl, onEditTable } = useContext(TreeCtx);
   return (
     <ContextMenu>
       <ContextMenuTrigger asChild>
@@ -843,8 +882,8 @@ function TableItem({
             icon={isView ? "ri-eye-line" : "ri-table-2-line"}
             iconColor="text-muted-foreground"
             label={table.name}
-            title={`${table.name}（${t("tree.openData")}：双击）`}
-            onDoubleClick={() => onOpenTable(connId, table)}
+            title={`${table.name}（${t("tree.openData")}）`}
+            onClick={() => onOpenTable(connId, table)}
           />
         </div>
       </ContextMenuTrigger>
@@ -855,6 +894,11 @@ function TableItem({
         <ContextMenuItem icon="ri-file-code-line" onClick={() => onShowDdl(connId, table)}>
           {t("tree.viewDdl")}
         </ContextMenuItem>
+        {!isView && (
+          <ContextMenuItem icon="ri-edit-line" onClick={() => onEditTable(connId, table)}>
+            {t("tree.editTable")}
+          </ContextMenuItem>
+        )}
         <ContextMenuSeparator />
         <ContextMenuItem icon="ri-file-copy-line" onClick={() => copyText(table.name)}>
           {t("tree.copyName")}
