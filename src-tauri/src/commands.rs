@@ -12,13 +12,16 @@ use crate::services::connection::{
 use crate::services::credential::{keys, CredentialService};
 use crate::services::dml::ChangeSet;
 use crate::services::edit::{CommitResult, EditService};
+use crate::services::export;
 use crate::services::metadata;
 use crate::services::query::{self, Page};
 use crate::services::saved_query;
 use crate::services::settings::{self, Settings};
 use crate::tunnel::{SshAuth, TunnelManager, TunnelSpec};
+use dashmap::DashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use tauri::State;
+use tauri::{AppHandle, Emitter, State};
 
 /// 全局应用状态。
 pub struct AppState {
@@ -27,6 +30,8 @@ pub struct AppState {
     pub tunnels: TunnelManager,
     /// AI 写操作提案暂存（经 `ai_confirm_write` 执行）。
     pub proposals: crate::ai::proposals::ProposalStore,
+    /// 进行中的导出任务取消标志（task_id → flag）。
+    pub exports: Arc<DashMap<String, Arc<AtomicBool>>>,
 }
 
 impl AppState {
@@ -36,6 +41,7 @@ impl AppState {
             cred: CredentialService::keyring(),
             tunnels: TunnelManager::new(),
             proposals: crate::ai::proposals::ProposalStore::new(),
+            exports: Arc::new(DashMap::new()),
         }
     }
 }
@@ -660,4 +666,203 @@ pub async fn ai_confirm_write(
             },
         })
         .collect())
+}
+
+// ---- 导出（后台任务 + 进度事件） -----------------------------------------
+
+/// 导出进度事件载荷（事件名 `export:progress`）。
+#[derive(Clone, serde::Serialize)]
+pub struct ExportProgress {
+    pub task_id: String,
+    pub written: u64,
+    pub total: Option<u64>,
+    /// running | done | cancelled | error
+    pub status: String,
+    pub message: Option<String>,
+}
+
+fn emit_progress(app: &AppHandle, p: ExportProgress) {
+    let _ = app.emit("export:progress", p);
+}
+
+/// 取消进行中的导出任务。
+#[tauri::command]
+pub fn cancel_export(state: State<'_, AppState>, task_id: String) -> R<()> {
+    if let Some(flag) = state.exports.get(&task_id) {
+        flag.store(true, Ordering::Relaxed);
+    }
+    Ok(())
+}
+
+/// 导出结果集（表浏览或自定义查询）→ CSV / XLSX / SQL。返回 task_id，进度走 `export:progress` 事件。
+#[allow(clippy::too_many_arguments)]
+#[tauri::command]
+pub async fn start_export_result(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    conn_id: String,
+    sql: Option<String>,
+    table: Option<TableRef>,
+    format: String,
+    scope: String,
+    page: u64,
+    page_size: u64,
+    limit: Option<u64>,
+    sql_table_name: Option<String>,
+    path: String,
+) -> R<String> {
+    let s = session(&state, &conn_id)?;
+    let fmt = export::ExportFormat::parse(&format)?;
+    let source = match (table.clone(), sql) {
+        (Some(t), _) => export::ExportSource::Table(t),
+        (None, Some(q)) => export::ExportSource::Query(q),
+        _ => return Err(AppError::Internal("export: no source".into())),
+    };
+    let sc = match scope.as_str() {
+        "all" => export::ExportScope::All,
+        "page" => export::ExportScope::Page(page),
+        "rows" => export::ExportScope::Rows(limit.unwrap_or(0)),
+        other => return Err(AppError::Internal(format!("export: bad scope {other}"))),
+    };
+    let table_name = sql_table_name
+        .or_else(|| table.as_ref().map(|t| t.name.clone()))
+        .unwrap_or_else(|| "result".into());
+
+    let task_id = uuid::Uuid::new_v4().to_string();
+    let cancel = Arc::new(AtomicBool::new(false));
+    state.exports.insert(task_id.clone(), cancel.clone());
+    let registry = state.exports.clone();
+    let tid = task_id.clone();
+    let page_size = page_size.max(1);
+
+    tokio::spawn(async move {
+        let res = export::run_result_export(
+            &s,
+            source,
+            fmt,
+            sc,
+            page_size,
+            &path,
+            &table_name,
+            &cancel,
+            |t| {
+                emit_progress(
+                    &app,
+                    ExportProgress {
+                        task_id: tid.clone(),
+                        written: t.written,
+                        total: t.total,
+                        status: "running".into(),
+                        message: t.message,
+                    },
+                );
+            },
+        )
+        .await;
+        finish_export(&app, &registry, &tid, &path, res);
+    });
+    Ok(task_id)
+}
+
+/// 转存表 / 数据库结构（可含数据）→ .sql。返回 task_id。
+#[allow(clippy::too_many_arguments)]
+#[tauri::command]
+pub async fn start_export_structure(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    conn_id: String,
+    table: Option<TableRef>,
+    is_view: Option<bool>,
+    database: Option<String>,
+    schema: Option<String>,
+    with_data: bool,
+    path: String,
+) -> R<String> {
+    let s = session(&state, &conn_id)?;
+    let tables: Vec<export::DumpTable> = if let Some(t) = table {
+        vec![export::DumpTable {
+            tref: t,
+            with_data: with_data && !is_view.unwrap_or(false),
+        }]
+    } else {
+        let db = database.clone().unwrap_or_default();
+        let a = s.adapter.lock().await;
+        let list = a.list_tables(&db, schema.as_deref()).await?;
+        drop(a);
+        list.into_iter()
+            .map(|ti| export::DumpTable {
+                tref: TableRef {
+                    database: database.clone(),
+                    schema: schema.clone(),
+                    name: ti.name,
+                },
+                with_data: with_data && matches!(ti.kind, TableKind::Table),
+            })
+            .collect()
+    };
+
+    let task_id = uuid::Uuid::new_v4().to_string();
+    let cancel = Arc::new(AtomicBool::new(false));
+    state.exports.insert(task_id.clone(), cancel.clone());
+    let registry = state.exports.clone();
+    let tid = task_id.clone();
+
+    tokio::spawn(async move {
+        let res = export::run_structure_export(&s, tables, 1000, &path, &cancel, |t| {
+            emit_progress(
+                &app,
+                ExportProgress {
+                    task_id: tid.clone(),
+                    written: t.written,
+                    total: t.total,
+                    status: "running".into(),
+                    message: t.message,
+                },
+            );
+        })
+        .await;
+        finish_export(&app, &registry, &tid, &path, res);
+    });
+    Ok(task_id)
+}
+
+/// 统一收尾：清理取消标志、删除取消时的半成品文件、发终态事件。
+fn finish_export(
+    app: &AppHandle,
+    registry: &Arc<DashMap<String, Arc<AtomicBool>>>,
+    task_id: &str,
+    path: &str,
+    res: R<export::ExportOutcome>,
+) {
+    registry.remove(task_id);
+    let p = match res {
+        Ok(o) if o.cancelled => {
+            let _ = std::fs::remove_file(path);
+            ExportProgress {
+                task_id: task_id.into(),
+                written: o.written,
+                total: None,
+                status: "cancelled".into(),
+                message: None,
+            }
+        }
+        Ok(o) => ExportProgress {
+            task_id: task_id.into(),
+            written: o.written,
+            total: Some(o.written),
+            status: "done".into(),
+            message: Some(path.to_string()),
+        },
+        Err(e) => {
+            let _ = std::fs::remove_file(path);
+            ExportProgress {
+                task_id: task_id.into(),
+                written: 0,
+                total: None,
+                status: "error".into(),
+                message: Some(e.to_string()),
+            }
+        }
+    };
+    emit_progress(app, p);
 }

@@ -9,6 +9,8 @@ import type {
   ConnConfigInput,
   DatabaseInfo,
   DbCapabilities,
+  ExportFormat,
+  ExportScope,
   ChangeSet,
   ResultSet,
   RunResult,
@@ -53,6 +55,30 @@ export const ipc = {
     invoke<void>("create_function", { connId, database, definition }),
   replaceFunction: (connId: string, routine: RoutineRef, definition: string) =>
     invoke<void>("replace_function", { connId, routine, definition }),
+
+  // 导出（后台任务，进度走 export:progress 事件）
+  startExportResult: (args: {
+    connId: string;
+    sql?: string | null;
+    table?: TableRef | null;
+    format: ExportFormat;
+    scope: ExportScope;
+    page: number;
+    pageSize: number;
+    limit?: number | null;
+    sqlTableName?: string | null;
+    path: string;
+  }) => invoke<string>("start_export_result", args),
+  startExportStructure: (args: {
+    connId: string;
+    table?: TableRef | null;
+    isView?: boolean | null;
+    database?: string | null;
+    schema?: string | null;
+    withData: boolean;
+    path: string;
+  }) => invoke<string>("start_export_structure", args),
+  cancelExport: (taskId: string) => invoke<void>("cancel_export", { taskId }),
 
   // 查询 / 浏览
   openTableData: (

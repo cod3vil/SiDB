@@ -182,6 +182,15 @@ impl DbAdapter for PostgresAdapter {
         &self.caps
     }
 
+    fn sql_dialect(&self) -> SqlDialect {
+        SqlDialect {
+            quote_char: '"',
+            bool_keywords: true,
+            backslash_strings: false,
+            bytes: BytesLiteral::PgHex,
+        }
+    }
+
     async fn connect(&mut self, target: &ConnTarget) -> Result<()> {
         let mut opts = PgConnectOptions::new()
             .host(&target.host)

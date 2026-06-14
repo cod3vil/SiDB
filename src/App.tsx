@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { ConnectionTree, type NewObjectType } from "@/components/tree/ConnectionTree";
+import { ConnectionTree, type NewObjectType, type ExportStructureTarget } from "@/components/tree/ConnectionTree";
+import { ExportDialog } from "@/components/export/ExportDialog";
+import { ExportProgressLayer } from "@/components/export/ExportProgress";
 import { ConnectionDialog } from "@/components/conn/ConnectionDialog";
 import { NewDatabaseDialog } from "@/components/conn/NewDatabaseDialog";
 import { NewTableDialog } from "@/components/table/NewTableDialog";
@@ -19,6 +21,8 @@ import type {
   ChangeSet,
   ConnConfig,
   DbCapabilities,
+  ExportFormat,
+  ExportScope,
   ResultSet,
   RoutineRef,
   RunResult,
@@ -27,7 +31,10 @@ import type {
 } from "@/ipc/types";
 import { useConnections } from "@/stores";
 import { useAi } from "@/stores/ai";
+import { useExports } from "@/stores/export";
 import { toast } from "@/stores/toast";
+import { save as saveFileDialog } from "@tauri-apps/plugin-dialog";
+import { listen } from "@tauri-apps/api/event";
 import { errorMessage } from "@/lib/error";
 import { LANGUAGES, setLanguage } from "@/i18n";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -122,6 +129,15 @@ export default function App() {
 
   const [saveDialog, setSaveDialog] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // 结果导出弹窗上下文（打开时非空）。
+  const [exportCtx, setExportCtx] = useState<{
+    connId: string;
+    source: { table: TableRef | null; sql: string | null };
+    page: number;
+    pageSize: number;
+    tableName: string;
+    label: string;
+  } | null>(null);
   const aiOpen = useAi((s) => s.open);
   const toggleAi = useAi((s) => s.toggle);
 
@@ -672,6 +688,94 @@ export default function App() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
+  // 导出进度事件 → 进度卡片 + 终态提示。
+  useEffect(() => {
+    const un = listen<import("@/ipc/types").ExportProgress>("export:progress", (e) => {
+      const p = e.payload;
+      useExports.getState().apply(p);
+      if (p.status === "done") {
+        toast.success(t("export.done", { n: p.written }));
+        setTimeout(() => useExports.getState().remove(p.task_id), 5000);
+      } else if (p.status === "error") {
+        toast.error(p.message || t("export.error"));
+        setTimeout(() => useExports.getState().remove(p.task_id), 6000);
+      } else if (p.status === "cancelled") {
+        setTimeout(() => useExports.getState().remove(p.task_id), 3000);
+      }
+    });
+    return () => {
+      void un.then((f) => f());
+    };
+  }, [t]);
+
+  // 结果导出：由 ResultGrid「导出」按钮触发，收集当前 tab 上下文后开弹窗。
+  const requestExport = () => {
+    const tab = activeTab;
+    if (!tab?.connId) return;
+    const rr = tab.results[tab.activeResult];
+    if (!rr || rr.type !== "rows") return;
+    const tableName = tab.browseTable?.name ?? "result";
+    setExportCtx({
+      connId: tab.connId,
+      source: { table: tab.browseTable ?? null, sql: tab.browseTable ? null : tab.sql },
+      page: rr.page.page,
+      pageSize: rr.page.page_size,
+      tableName,
+      label: tableName,
+    });
+  };
+
+  const doExportResult = async (opts: { format: ExportFormat; scope: ExportScope; limit: number }) => {
+    const ctx = exportCtx;
+    if (!ctx) return;
+    setExportCtx(null);
+    const path = await saveFileDialog({
+      defaultPath: `${ctx.label}.${opts.format}`,
+      filters: [{ name: opts.format.toUpperCase(), extensions: [opts.format] }],
+    });
+    if (typeof path !== "string") return;
+    try {
+      const taskId = await ipc.startExportResult({
+        connId: ctx.connId,
+        sql: ctx.source.sql,
+        table: ctx.source.table,
+        format: opts.format,
+        scope: opts.scope,
+        page: ctx.page,
+        pageSize: ctx.pageSize,
+        limit: opts.scope === "rows" ? opts.limit : null,
+        sqlTableName: ctx.tableName,
+        path,
+      });
+      useExports.getState().begin(taskId, ctx.label);
+    } catch (e) {
+      toast.error(errorMessage(e));
+    }
+  };
+
+  const exportStructure = async (connId: string, target: ExportStructureTarget, withData: boolean) => {
+    const base = target.table?.name ?? target.schema ?? target.database ?? "schema";
+    const path = await saveFileDialog({
+      defaultPath: `${base}.sql`,
+      filters: [{ name: "SQL", extensions: ["sql"] }],
+    });
+    if (typeof path !== "string") return;
+    try {
+      const taskId = await ipc.startExportStructure({
+        connId,
+        table: target.table,
+        isView: target.isView,
+        database: target.database,
+        schema: target.schema,
+        withData,
+        path,
+      });
+      useExports.getState().begin(taskId, base);
+    } catch (e) {
+      toast.error(errorMessage(e));
+    }
+  };
+
   const onSaved = () => {
     setDialog(null);
     ipc.listConnections().then(setConfigs).catch(() => undefined);
@@ -749,6 +853,7 @@ export default function App() {
             onNewObject={newObject}
             onOpenQuery={openSavedQuery}
             onShowFunction={showFunction}
+            onExportStructure={exportStructure}
             onNewConnection={() => setDialog({ cfg: null })}
             onEditConnection={(c) => setDialog({ cfg: c })}
           />
@@ -870,6 +975,7 @@ export default function App() {
                         onGoto={browseMode ? gotoPage : undefined}
                         table={browseMode ? activeTab?.browseTable : null}
                         onCommit={browseMode ? commitEdits : undefined}
+                        onExport={activeTab?.connId ? requestExport : undefined}
                       />
                     ) : active?.type === "affected" ? (
                       <div className="flex-1 overflow-auto rounded-md border border-border bg-muted/20 p-3 font-mono text-xs leading-relaxed">
@@ -987,6 +1093,9 @@ export default function App() {
         />
       )}
 
+      {exportCtx && <ExportDialog onClose={() => setExportCtx(null)} onConfirm={doExportResult} />}
+
+      <ExportProgressLayer />
       <Toaster />
     </div>
   );

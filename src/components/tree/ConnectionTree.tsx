@@ -38,6 +38,7 @@ const TreeCtx = createContext<{
   onNewObject: (connId: string, database: string | null, schema: string | null, type: NewObjectType) => void;
   onOpenQuery: (connId: string, query: SavedQuery) => void;
   onShowFunction: (connId: string, routine: RoutineRef) => void;
+  onExportStructure: (connId: string, target: ExportStructureTarget, withData: boolean) => void;
 }>({
   onShowDdl: () => undefined,
   onEditTable: () => undefined,
@@ -45,7 +46,16 @@ const TreeCtx = createContext<{
   onNewObject: () => undefined,
   onOpenQuery: () => undefined,
   onShowFunction: () => undefined,
+  onExportStructure: () => undefined,
 });
+
+/** 转存结构目标：单表（table 非空）或整库 / schema（table 为 null）。 */
+export type ExportStructureTarget = {
+  table: TableRef | null;
+  isView: boolean;
+  database: string | null;
+  schema: string | null;
+};
 
 interface Props {
   onOpenTable: (connId: string, table: TableRef) => void;
@@ -55,6 +65,7 @@ interface Props {
   onNewObject: (connId: string, database: string | null, schema: string | null, type: NewObjectType) => void;
   onOpenQuery: (connId: string, query: SavedQuery) => void;
   onShowFunction: (connId: string, routine: RoutineRef) => void;
+  onExportStructure: (connId: string, target: ExportStructureTarget, withData: boolean) => void;
   onNewConnection: () => void;
   onEditConnection: (cfg: ConnConfig) => void;
 }
@@ -67,6 +78,7 @@ export function ConnectionTree({
   onNewObject,
   onOpenQuery,
   onShowFunction,
+  onExportStructure,
   onNewConnection,
   onEditConnection,
 }: Props) {
@@ -141,7 +153,7 @@ export function ConnectionTree({
         {configs.length === 0 ? (
           <EmptyState onNew={onNewConnection} />
         ) : (
-          <TreeCtx.Provider value={{ onShowDdl, onEditTable, onActivate, onNewObject, onOpenQuery, onShowFunction }}>
+          <TreeCtx.Provider value={{ onShowDdl, onEditTable, onActivate, onNewObject, onOpenQuery, onShowFunction, onExportStructure }}>
             {filtered.map((cfg) => (
               <ConnNode
                 key={cfg.id}
@@ -533,7 +545,7 @@ function ContainerNode({
   onOpenTable: (connId: string, table: TableRef) => void;
 }) {
   const { t } = useTranslation();
-  const { onActivate } = useContext(TreeCtx);
+  const { onActivate, onExportStructure } = useContext(TreeCtx);
   const [expanded, setExpanded] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
   const [confirming, setConfirming] = useState(false);
@@ -587,6 +599,23 @@ function ContainerNode({
           </ContextMenuItem>
           <ContextMenuItem icon="ri-file-copy-line" onClick={() => copyText(label)}>
             {t("tree.copyName")}
+          </ContextMenuItem>
+          <ContextMenuSeparator />
+          <ContextMenuItem
+            icon="ri-file-code-line"
+            onClick={() =>
+              onExportStructure(connId, { table: null, isView: false, database: refDatabase, schema: refSchema }, false)
+            }
+          >
+            {t("tree.exportStructure")}
+          </ContextMenuItem>
+          <ContextMenuItem
+            icon="ri-database-2-line"
+            onClick={() =>
+              onExportStructure(connId, { table: null, isView: false, database: refDatabase, schema: refSchema }, true)
+            }
+          >
+            {t("tree.exportStructureData")}
           </ContextMenuItem>
           <ContextMenuSeparator />
           <ContextMenuItem icon="ri-delete-bin-line" destructive onClick={() => setConfirming(true)}>
@@ -942,7 +971,8 @@ function TableItem({
   onOpenTable: (connId: string, table: TableRef) => void;
 }) {
   const { t } = useTranslation();
-  const { onShowDdl, onEditTable } = useContext(TreeCtx);
+  const { onShowDdl, onEditTable, onExportStructure } = useContext(TreeCtx);
+  const exportTarget = { table, isView, database: table.database ?? null, schema: table.schema ?? null };
   return (
     <ContextMenu>
       <ContextMenuTrigger asChild>
@@ -969,6 +999,13 @@ function TableItem({
             {t("tree.editTable")}
           </ContextMenuItem>
         )}
+        <ContextMenuSeparator />
+        <ContextMenuItem icon="ri-file-code-line" onClick={() => onExportStructure(connId, exportTarget, false)}>
+          {t("tree.exportStructure")}
+        </ContextMenuItem>
+        <ContextMenuItem icon="ri-database-2-line" onClick={() => onExportStructure(connId, exportTarget, true)}>
+          {t("tree.exportStructureData")}
+        </ContextMenuItem>
         <ContextMenuSeparator />
         <ContextMenuItem icon="ri-file-copy-line" onClick={() => copyText(table.name)}>
           {t("tree.copyName")}

@@ -139,6 +139,16 @@ export interface RoutineInfo {
   /** 方言内部标识（PG `oid`），同名重载时用于精确定位。 */
   id?: number | null;
 }
+export type ExportFormat = "csv" | "xlsx" | "sql";
+export type ExportScope = "all" | "page" | "rows";
+export interface ExportProgress {
+  task_id: string;
+  written: number;
+  total: number | null;
+  status: "running" | "done" | "cancelled" | "error";
+  message: string | null;
+}
+
 export interface RoutineRef {
   database: string | null;
   schema: string | null;

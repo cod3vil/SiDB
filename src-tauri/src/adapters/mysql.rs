@@ -203,6 +203,15 @@ impl DbAdapter for MySqlAdapter {
         &self.caps
     }
 
+    fn sql_dialect(&self) -> SqlDialect {
+        SqlDialect {
+            quote_char: '`',
+            bool_keywords: false,
+            backslash_strings: true,
+            bytes: BytesLiteral::XQuote,
+        }
+    }
+
     async fn connect(&mut self, target: &ConnTarget) -> Result<()> {
         let mut opts = MySqlConnectOptions::new()
             .host(&target.host)

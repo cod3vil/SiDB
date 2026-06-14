@@ -144,6 +144,15 @@ impl DbAdapter for SqliteAdapter {
         &self.caps
     }
 
+    fn sql_dialect(&self) -> SqlDialect {
+        SqlDialect {
+            quote_char: '"',
+            bool_keywords: false,
+            backslash_strings: false,
+            bytes: BytesLiteral::XQuote,
+        }
+    }
+
     async fn connect(&mut self, target: &ConnTarget) -> Result<()> {
         let path = target
             .sqlite_path

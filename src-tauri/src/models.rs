@@ -260,6 +260,25 @@ pub enum DbKind {
     Sqlite,
 }
 
+/// 字节字面量风格：`x'AB'`（MySQL/SQLite）或 `'\xAB'`（PG bytea）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BytesLiteral {
+    XQuote,
+    PgHex,
+}
+
+/// 生成 SQL 字面量（导出 INSERT 用）所需的方言规则。由各适配器提供，
+/// 渲染逻辑在 `services::export`，**方言判定不外泄到 services/前端**（铁律 #1）。
+#[derive(Debug, Clone, Copy)]
+pub struct SqlDialect {
+    pub quote_char: char,
+    /// 布尔渲染：true → `TRUE/FALSE`（PG）；false → `1/0`（MySQL/SQLite）。
+    pub bool_keywords: bool,
+    /// 字符串转义：true → 反斜杠转义（MySQL）；false → 仅 `''` 双写（PG/SQLite）。
+    pub backslash_strings: bool,
+    pub bytes: BytesLiteral,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum SslMode {

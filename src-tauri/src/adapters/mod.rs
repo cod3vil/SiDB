@@ -62,6 +62,9 @@ impl DbCapabilities {
 pub trait DbAdapter: Send + Sync {
     fn capabilities(&self) -> &DbCapabilities;
 
+    /// 本方言生成 SQL 字面量（导出 INSERT）的规则。
+    fn sql_dialect(&self) -> SqlDialect;
+
     async fn connect(&mut self, target: &ConnTarget) -> Result<()>;
     async fn disconnect(&mut self);
     async fn ping(&self) -> Result<()>;
