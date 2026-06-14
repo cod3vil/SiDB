@@ -31,3 +31,10 @@ Cargo.lock.orig
 
 # App runtime data (created at runtime under user home; never commit)
 .sidb/
+
+# 内部文档 / 开发指引（不进仓库、不推 GitHub）
+CLAUDE.md
+PRD.md
+TDD.md
+HANDOFF.md
+PROGRESS.md

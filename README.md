@@ -4,8 +4,6 @@
 
 一期支持 **MySQL / PostgreSQL / SQLite**，含 SSH 隧道、数据编辑，预留 AI 模块。
 
-> 需求见 [`PRD.md`](./PRD.md)，技术设计见 [`TDD.md`](./TDD.md)。开发约定见 [`CLAUDE.md`](./CLAUDE.md)。两者为唯一事实来源；冲突时以 TDD 为准。
-
 ## 技术栈
 
 - 后端：Rust（`src-tauri/`）—— sqlx + russh + keyring + tokio
