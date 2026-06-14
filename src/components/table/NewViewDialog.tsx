@@ -63,6 +63,8 @@ export function NewViewDialog({ connId, quoteChar, database, schema, onClose, on
             <textarea
               value={def}
               onChange={(e) => setDef(e.target.value)}
+              autoCapitalize="off"
+              autoCorrect="off"
               spellCheck={false}
               rows={5}
               className="w-full resize-y rounded-md border border-input bg-background px-2.5 py-1.5 font-mono text-xs text-foreground outline-none focus:border-ring focus:ring-1 focus:ring-ring"

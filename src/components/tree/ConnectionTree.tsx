@@ -127,6 +127,9 @@ export function ConnectionTree({
 
       {configs.length > 0 && (
         <input
+          autoCapitalize="off"
+          autoCorrect="off"
+          spellCheck={false}
           className="m-2 rounded-md border border-border bg-muted px-2.5 py-1.5 text-xs text-foreground placeholder:text-muted-foreground/70 outline-none focus:border-emerald-500"
           placeholder={t("tree.filter")}
           value={filter}

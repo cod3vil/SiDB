@@ -174,6 +174,9 @@ export function AiPanel({ width, connId, database, schema, table, onInsertSql, o
           <textarea
             value={input}
             onChange={(e) => setInput(e.target.value)}
+            autoCapitalize="off"
+            autoCorrect="off"
+            spellCheck={false}
             onKeyDown={(e) => {
               if (e.key === "Enter" && !e.shiftKey) {
                 e.preventDefault();

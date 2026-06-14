@@ -301,6 +301,9 @@ export function ResultGrid({ result, onGoto, table, onCommit }: Props) {
                       {isEditing ? (
                         <input
                           autoFocus
+                          autoCapitalize="off"
+                          autoCorrect="off"
+                          spellCheck={false}
                           value={editStr}
                           onChange={(e) => setEditStr(e.target.value)}
                           onKeyDown={(e) => {
