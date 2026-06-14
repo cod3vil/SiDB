@@ -50,6 +50,8 @@ interface AiState {
   selectConversation: (id: string) => void;
   /** 删除某段历史会话。 */
   deleteConversation: (id: string) => void;
+  /** 清空全部历史会话。 */
+  clearConversations: () => void;
   /** 发送一条消息（面板输入框 / 内联动作共用）。无连接时静默忽略，由调用方先校验。 */
   ask: (ctx: AskCtx, message: string) => Promise<void>;
 }
@@ -89,6 +91,7 @@ export const useAi = create<AiState>()(
           activeId: null,
         })),
       selectConversation: (id) => set({ activeId: id }),
+      clearConversations: () => set({ conversations: [], activeId: null }),
       deleteConversation: (id) =>
         set((s) => ({
           conversations: s.conversations.filter((c) => c.id !== id),

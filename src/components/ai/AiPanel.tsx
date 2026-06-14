@@ -7,6 +7,7 @@ import remarkGfm from "remark-gfm";
 import { errorMessage } from "@/lib/error";
 import { toast } from "@/stores/toast";
 import { useAi, activeMessages, type ChatTurn, type Conversation } from "@/stores/ai";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { cn } from "@/lib/utils";
 
 interface Props {
@@ -84,6 +85,7 @@ export function AiPanel({ width, connId, database, schema, table, onInsertSql, o
   const newConversation = useAi((s) => s.newConversation);
   const selectConversation = useAi((s) => s.selectConversation);
   const deleteConversation = useAi((s) => s.deleteConversation);
+  const clearConversations = useAi((s) => s.clearConversations);
   const [input, setInput] = useState("");
   const [confirmed, setConfirmed] = useState<Record<string, "done" | "busy">>({});
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -207,6 +209,7 @@ export function AiPanel({ width, connId, database, schema, table, onInsertSql, o
             setHistoryOpen(false);
           }}
           onDelete={deleteConversation}
+          onClearAll={clearConversations}
           onClose={() => setHistoryOpen(false)}
         />
       )}
@@ -233,15 +236,18 @@ function HistoryDrawer({
   activeId,
   onSelect,
   onDelete,
+  onClearAll,
   onClose,
 }: {
   conversations: Conversation[];
   activeId: string | null;
   onSelect: (id: string) => void;
   onDelete: (id: string) => void;
+  onClearAll: () => void;
   onClose: () => void;
 }) {
   const { t } = useTranslation();
+  const [confirming, setConfirming] = useState(false);
   const items = [...conversations].sort((a, b) => b.updatedAt - a.updatedAt);
   return (
     <div className="absolute inset-0 z-20 flex" onClick={onClose}>
@@ -253,14 +259,37 @@ function HistoryDrawer({
         <div className="flex h-9 shrink-0 items-center gap-2 border-b border-border px-3">
           <i className="ri-history-line text-sm text-muted-foreground" />
           <span className="text-xs font-semibold text-foreground">{t("ai.history")}</span>
-          <button
-            onClick={onClose}
-            title={t("common.close")}
-            className="ml-auto flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
-          >
-            <i className="ri-close-line text-base" />
-          </button>
+          <div className="ml-auto flex items-center gap-1">
+            {items.length > 0 && (
+              <button
+                onClick={() => setConfirming(true)}
+                title={t("ai.clearHistory")}
+                className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+              >
+                <i className="ri-delete-bin-line text-sm" />
+              </button>
+            )}
+            <button
+              onClick={onClose}
+              title={t("common.close")}
+              className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
+            >
+              <i className="ri-close-line text-base" />
+            </button>
+          </div>
         </div>
+        {confirming && (
+          <ConfirmDialog
+            danger
+            message={t("ai.clearHistoryConfirm", { n: items.length })}
+            onCancel={() => setConfirming(false)}
+            onConfirm={() => {
+              setConfirming(false);
+              onClearAll();
+              onClose();
+            }}
+          />
+        )}
         <div className="flex-1 overflow-auto p-1.5">
           {items.length === 0 ? (
             <div className="px-2 py-10 text-center text-xs text-muted-foreground/70">
