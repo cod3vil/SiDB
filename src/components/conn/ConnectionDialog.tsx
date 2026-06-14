@@ -7,6 +7,7 @@ import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialo
 import { ipc } from "@/ipc";
 import type { ConnConfig, ConnConfigInput, DbKind, SslMode } from "@/ipc/types";
 import { errorMessage } from "@/lib/error";
+import { toast } from "@/stores/toast";
 import { Button } from "@/components/ui/button";
 import { Input as UiInput } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -116,7 +117,6 @@ export function ConnectionDialog({ initial, onClose, onSaved }: Props) {
   const [f, setF] = useState<FormState>(() => initState(initial));
   const [testing, setTesting] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [feedback, setFeedback] = useState<{ ok: boolean; msg: string } | null>(null);
   const [tab, setTab] = useState<"general" | "advanced" | "ssh">("general");
 
   const isSqlite = f.kind === "sqlite";
@@ -124,7 +124,6 @@ export function ConnectionDialog({ initial, onClose, onSaved }: Props) {
   const set = (patch: Partial<FormState>) => setF((s) => ({ ...s, ...patch }));
 
   const pickKind = (kind: DbKind) => {
-    setFeedback(null);
     if (kind === "sqlite" && tab === "ssh") setTab("general");
     set({ kind, ...KIND_DEFAULTS[kind] });
   };
@@ -183,16 +182,15 @@ export function ConnectionDialog({ initial, onClose, onSaved }: Props) {
     const err = validate();
     if (err) {
       setTab("general");
-      setFeedback({ ok: false, msg: err });
+      toast.error(err);
       return;
     }
     setTesting(true);
-    setFeedback(null);
     try {
       await ipc.testConnection(buildInput());
-      setFeedback({ ok: true, msg: t("conn.testOk") });
+      toast.success(t("conn.testOk"));
     } catch (e) {
-      setFeedback({ ok: false, msg: errorMessage(e) });
+      toast.error(errorMessage(e));
     } finally {
       setTesting(false);
     }
@@ -202,16 +200,15 @@ export function ConnectionDialog({ initial, onClose, onSaved }: Props) {
     const err = validate();
     if (err) {
       setTab("general");
-      setFeedback({ ok: false, msg: err });
+      toast.error(err);
       return;
     }
     setSaving(true);
-    setFeedback(null);
     try {
       const cfg = await ipc.saveConnection(buildInput());
       onSaved(cfg);
     } catch (e) {
-      setFeedback({ ok: false, msg: errorMessage(e) });
+      toast.error(errorMessage(e));
       setSaving(false);
     }
   };
@@ -418,17 +415,6 @@ export function ConnectionDialog({ initial, onClose, onSaved }: Props) {
             </>
           )}
 
-          {feedback && (
-            <div
-              className={`rounded-md px-3 py-2 text-xs ${
-                feedback.ok
-                  ? "border border-emerald-600/40 bg-emerald-600/10 text-emerald-600 dark:text-emerald-400"
-                  : "border border-destructive/40 bg-destructive/10 text-destructive"
-              }`}
-            >
-              {feedback.msg}
-            </div>
-          )}
         </div>
 
         <div className="flex shrink-0 items-center gap-2 px-5 py-3 border-t border-border">
