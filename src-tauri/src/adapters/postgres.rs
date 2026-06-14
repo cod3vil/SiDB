@@ -346,7 +346,7 @@ impl DbAdapter for PostgresAdapter {
     async fn list_functions(&self, _db: &str, schema: Option<&str>) -> Result<Vec<RoutineInfo>> {
         let schema = schema.unwrap_or("public");
         let rows = sqlx::query(
-            "SELECT p.proname, p.prokind FROM pg_proc p \
+            "SELECT p.oid::int8 AS oid, p.proname, p.prokind FROM pg_proc p \
              JOIN pg_namespace n ON n.oid = p.pronamespace \
              WHERE n.nspname = $1 AND p.prokind IN ('f','p') ORDER BY p.proname",
         )
@@ -362,9 +362,38 @@ impl DbAdapter for PostgresAdapter {
                 Some(RoutineInfo {
                     name,
                     kind: if kind == "p" { RoutineKind::Procedure } else { RoutineKind::Function },
+                    id: r.try_get("oid").ok(),
                 })
             })
             .collect())
+    }
+
+    async fn function_ddl(&self, r: &RoutineRef) -> Result<String> {
+        let pool = self.pool()?;
+        // 优先用元数据带出的 oid 精确定位（同名重载唯一）；缺失时按 schema + 名称回退取首个。
+        let oid: i64 = if let Some(id) = r.id {
+            id
+        } else {
+            let schema = r.schema.as_deref().unwrap_or("public");
+            let row = sqlx::query(
+                "SELECT p.oid::int8 AS oid FROM pg_proc p \
+                 JOIN pg_namespace n ON n.oid = p.pronamespace \
+                 WHERE n.nspname = $1 AND p.proname = $2 ORDER BY p.oid LIMIT 1",
+            )
+            .bind(schema)
+            .bind(&r.name)
+            .fetch_optional(pool)
+            .await
+            .map_err(AppError::from)?
+            .ok_or_else(|| AppError::NotEditable(format!("function not found: {}", r.name)))?;
+            row.try_get("oid").map_err(sql_err)?
+        };
+        let row = sqlx::query("SELECT pg_get_functiondef($1::oid) AS def")
+            .bind(oid)
+            .fetch_one(pool)
+            .await
+            .map_err(AppError::from)?;
+        row.try_get("def").map_err(sql_err)
     }
 
     async fn table_schema(&self, t: &TableRef) -> Result<TableSchema> {

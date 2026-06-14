@@ -8,7 +8,7 @@
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ipc } from "@/ipc";
-import type { ConnConfig, DbCapabilities, RoutineInfo, SavedQuery, TableInfo, TableRef } from "@/ipc/types";
+import type { ConnConfig, DbCapabilities, RoutineInfo, RoutineRef, SavedQuery, TableInfo, TableRef } from "@/ipc/types";
 import { useConnections } from "@/stores";
 import { toast } from "@/stores/toast";
 import { errorMessage } from "@/lib/error";
@@ -37,12 +37,14 @@ const TreeCtx = createContext<{
   onActivate: (connId: string, database: string | null, schema: string | null) => void;
   onNewObject: (connId: string, database: string | null, schema: string | null, type: NewObjectType) => void;
   onOpenQuery: (connId: string, query: SavedQuery) => void;
+  onShowFunction: (connId: string, routine: RoutineRef) => void;
 }>({
   onShowDdl: () => undefined,
   onEditTable: () => undefined,
   onActivate: () => undefined,
   onNewObject: () => undefined,
   onOpenQuery: () => undefined,
+  onShowFunction: () => undefined,
 });
 
 interface Props {
@@ -52,6 +54,7 @@ interface Props {
   onActivate: (connId: string, database: string | null, schema: string | null) => void;
   onNewObject: (connId: string, database: string | null, schema: string | null, type: NewObjectType) => void;
   onOpenQuery: (connId: string, query: SavedQuery) => void;
+  onShowFunction: (connId: string, routine: RoutineRef) => void;
   onNewConnection: () => void;
   onEditConnection: (cfg: ConnConfig) => void;
 }
@@ -63,6 +66,7 @@ export function ConnectionTree({
   onActivate,
   onNewObject,
   onOpenQuery,
+  onShowFunction,
   onNewConnection,
   onEditConnection,
 }: Props) {
@@ -134,7 +138,7 @@ export function ConnectionTree({
         {configs.length === 0 ? (
           <EmptyState onNew={onNewConnection} />
         ) : (
-          <TreeCtx.Provider value={{ onShowDdl, onEditTable, onActivate, onNewObject, onOpenQuery }}>
+          <TreeCtx.Provider value={{ onShowDdl, onEditTable, onActivate, onNewObject, onOpenQuery, onShowFunction }}>
             {filtered.map((cfg) => (
               <ConnNode
                 key={cfg.id}
@@ -780,13 +784,13 @@ function CategoryNode(
               <Loading depth={cdepth} />
             ) : funcs.length > 0 ? (
               funcs.map((fn) => (
-                <Row
-                  key={fn.name}
+                <FunctionItem
+                  key={fn.id != null ? `${fn.name}#${fn.id}` : fn.name}
+                  connId={p.connId}
+                  refDatabase={p.refDatabase}
+                  refSchema={p.refSchema}
+                  fn={fn}
                   depth={cdepth}
-                  icon={fn.kind === "procedure" ? "ri-terminal-box-line" : "ri-function-line"}
-                  iconColor="text-muted-foreground"
-                  label={fn.name}
-                  title={fn.name}
                 />
               ))
             ) : (
@@ -806,6 +810,57 @@ function CategoryNode(
         </>
       )}
     </div>
+  );
+}
+
+// 函数 / 存储过程项：单击或双击查看定义；右键 = 查看定义 / 复制名称。
+function FunctionItem({
+  connId,
+  refDatabase,
+  refSchema,
+  fn,
+  depth,
+}: {
+  connId: string;
+  refDatabase: string | null;
+  refSchema: string | null;
+  fn: RoutineInfo;
+  depth: number;
+}) {
+  const { t } = useTranslation();
+  const { onShowFunction } = useContext(TreeCtx);
+  const routine: RoutineRef = {
+    database: refDatabase,
+    schema: refSchema,
+    name: fn.name,
+    kind: fn.kind,
+    id: fn.id ?? null,
+  };
+  const open = () => onShowFunction(connId, routine);
+  return (
+    <ContextMenu>
+      <ContextMenuTrigger asChild>
+        <div>
+          <Row
+            depth={depth}
+            icon={fn.kind === "procedure" ? "ri-terminal-box-line" : "ri-function-line"}
+            iconColor="text-muted-foreground"
+            label={fn.name}
+            title={`${fn.name}（${t("tree.viewDefinition")}）`}
+            onClick={open}
+          />
+        </div>
+      </ContextMenuTrigger>
+      <ContextMenuContent>
+        <ContextMenuItem icon="ri-file-code-line" onClick={open}>
+          {t("tree.viewDefinition")}
+        </ContextMenuItem>
+        <ContextMenuSeparator />
+        <ContextMenuItem icon="ri-file-copy-line" onClick={() => copyText(fn.name)}>
+          {t("tree.copyName")}
+        </ContextMenuItem>
+      </ContextMenuContent>
+    </ContextMenu>
   );
 }
 

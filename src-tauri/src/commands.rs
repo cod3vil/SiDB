@@ -288,6 +288,17 @@ pub async fn get_table_ddl(
     a.table_ddl(&table).await
 }
 
+#[tauri::command]
+pub async fn get_function_ddl(
+    state: State<'_, AppState>,
+    conn_id: String,
+    routine: RoutineRef,
+) -> R<String> {
+    let s = session(&state, &conn_id)?;
+    let a = s.adapter.lock().await;
+    a.function_ddl(&routine).await
+}
+
 // ---- 查询 / 浏览 ----------------------------------------------------------
 
 #[tauri::command]

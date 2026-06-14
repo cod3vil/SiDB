@@ -20,6 +20,7 @@ import type {
   ConnConfig,
   DbCapabilities,
   ResultSet,
+  RoutineRef,
   RunResult,
   SavedQuery,
   TableRef,
@@ -377,6 +378,33 @@ export default function App() {
     }
   };
 
+  const showFunction = async (connId: string, routine: RoutineRef) => {
+    const tabId = activeTabId;
+    const c = await ensureConnected(connId);
+    if (!c) return;
+    const ctx = await loadContext(connId, c, routine.database ?? null, routine.schema ?? null);
+    updateTab(tabId, {
+      connId,
+      db: routine.database ?? null,
+      schema: routine.schema ?? ctx.schema ?? null,
+      databases: ctx.databases,
+      schemas: ctx.schemas,
+      tables: ctx.tables,
+      results: [],
+      activeResult: 0,
+      browseTable: null,
+      error: null,
+      // 标记为函数 tab：保存即执行（PG `CREATE OR REPLACE FUNCTION` 原地更新），而非另存为查询。
+      creatingFunction: true,
+    });
+    try {
+      const def = await ipc.getFunctionDdl(connId, routine);
+      updateTab(tabId, { sql: def });
+    } catch (e) {
+      toast.error(errorMessage(e));
+    }
+  };
+
   const newObject = (connId: string, database: string | null, schema: string | null, type: NewObjectType) => {
     if (type === "database") {
       setDbDialog(connId);
@@ -437,15 +465,15 @@ export default function App() {
     }
   };
 
-  // 「新增函数」状态下的保存：执行 CREATE FUNCTION 创建函数，成功后刷新树。
+  // 函数 tab 的保存：执行 SQL（新增 = CREATE FUNCTION；编辑 = CREATE OR REPLACE FUNCTION），
+  // 成功后刷新树。保持 creatingFunction 标记，使后续保存仍更新函数而非另存为查询。
   const saveFunction = async () => {
     const tab = activeTab;
     if (!tab?.connId) return;
     const ok = await runSql();
     if (!ok) return;
-    updateTab(tab.id, { creatingFunction: false });
     bumpTree();
-    toast.success(t("editor.functionCreated"));
+    toast.success(t("editor.functionSaved"));
   };
 
   const cancelSql = async () => {
@@ -690,6 +718,7 @@ export default function App() {
             onActivate={activateContext}
             onNewObject={newObject}
             onOpenQuery={openSavedQuery}
+            onShowFunction={showFunction}
             onNewConnection={() => setDialog({ cfg: null })}
             onEditConnection={(c) => setDialog({ cfg: c })}
           />

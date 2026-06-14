@@ -62,6 +62,7 @@ pub fn run() {
             commands::list_columns,
             commands::get_table_schema,
             commands::get_table_ddl,
+            commands::get_function_ddl,
             commands::open_table_data,
             commands::run_sql,
             commands::cancel_query,

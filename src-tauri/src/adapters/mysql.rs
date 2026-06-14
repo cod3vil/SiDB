@@ -402,9 +402,35 @@ impl DbAdapter for MySqlAdapter {
                     } else {
                         RoutineKind::Function
                     },
+                    id: None,
                 })
             })
             .collect())
+    }
+
+    async fn function_ddl(&self, r: &RoutineRef) -> Result<String> {
+        let caps = self.capabilities();
+        // 标识符经引号化函数（来源元数据），SHOW CREATE 不支持参数占位符。
+        let mut ident = String::new();
+        if let Some(db) = &r.database {
+            ident.push_str(&caps.quote_ident(db)?);
+            ident.push('.');
+        }
+        ident.push_str(&caps.quote_ident(&r.name)?);
+        let kw = match r.kind {
+            RoutineKind::Procedure => "PROCEDURE",
+            RoutineKind::Function => "FUNCTION",
+        };
+        let sql = format!("SHOW CREATE {kw} {ident}");
+        let rows = sqlx::query(&sql)
+            .fetch_all(self.pool()?)
+            .await
+            .map_err(AppError::from)?;
+        let row = rows
+            .first()
+            .ok_or_else(|| AppError::NotEditable(format!("routine not found: {}", r.name)))?;
+        // SHOW CREATE FUNCTION/PROCEDURE 第 3 列为 "Create Function" / "Create Procedure"。
+        Ok(string_via_bytes(row, 2))
     }
 
     async fn table_schema(&self, t: &TableRef) -> Result<TableSchema> {

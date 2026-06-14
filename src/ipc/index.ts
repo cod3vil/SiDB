@@ -13,6 +13,7 @@ import type {
   ResultSet,
   RunResult,
   RoutineInfo,
+  RoutineRef,
   SavedQuery,
   SavedQueryInput,
   Settings,
@@ -46,6 +47,8 @@ export const ipc = {
     invoke("get_table_schema", { connId, table }),
   getTableDdl: (connId: string, table: TableRef) =>
     invoke<string>("get_table_ddl", { connId, table }),
+  getFunctionDdl: (connId: string, routine: RoutineRef) =>
+    invoke<string>("get_function_ddl", { connId, routine }),
 
   // 查询 / 浏览
   openTableData: (

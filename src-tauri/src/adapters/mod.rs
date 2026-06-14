@@ -94,6 +94,12 @@ pub trait DbAdapter: Send + Sync {
     }
     async fn table_schema(&self, t: &TableRef) -> Result<TableSchema>;
     async fn table_ddl(&self, t: &TableRef) -> Result<String>;
+    /// 函数 / 存储过程定义（源码 / DDL）。无该概念或未实现的方言默认报错。
+    async fn function_ddl(&self, _r: &RoutineRef) -> Result<String> {
+        Err(AppError::NotEditable(
+            "function definition not supported for this database".into(),
+        ))
+    }
     /// 行定位列：主键 → 唯一非空索引 → rowid（仅 SQLite）→ None。
     async fn row_identifier(&self, t: &TableRef) -> Result<Option<Vec<String>>>;
 }

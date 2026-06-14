@@ -188,6 +188,22 @@ pub enum RoutineKind {
 pub struct RoutineInfo {
     pub name: String,
     pub kind: RoutineKind,
+    /// 方言内部标识（PG 为 `pg_proc.oid`），用于在重载同名时精确定位。无则 None。
+    #[serde(default)]
+    pub id: Option<i64>,
+}
+
+/// 定位一个函数 / 存储过程（查看定义用）。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RoutineRef {
+    pub database: Option<String>,
+    /// PG 用；MySQL / SQLite 为 None。
+    pub schema: Option<String>,
+    pub name: String,
+    pub kind: RoutineKind,
+    /// 方言内部标识（PG `oid`）；同名重载时必需。
+    #[serde(default)]
+    pub id: Option<i64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

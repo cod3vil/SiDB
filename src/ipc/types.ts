@@ -136,6 +136,15 @@ export interface TableInfo {
 export interface RoutineInfo {
   name: string;
   kind: "function" | "procedure";
+  /** 方言内部标识（PG `oid`），同名重载时用于精确定位。 */
+  id?: number | null;
+}
+export interface RoutineRef {
+  database: string | null;
+  schema: string | null;
+  name: string;
+  kind: "function" | "procedure";
+  id?: number | null;
 }
 export interface SavedQuery {
   id: string;
