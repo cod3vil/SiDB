@@ -1,7 +1,9 @@
-// AI 对话面板状态：开关 + 消息列表 + 发送。历史由前端内存持有（后端无状态）。
+// AI 对话面板状态：开关 + 多会话（历史）+ 发送。
+// 会话历史持久化到 localStorage（后端无状态，整段历史每次随请求上送）。
 // send 逻辑集中在此，供面板输入框与编辑器内联动作（解释/优化/修复）共用。
 
 import { create } from "zustand";
+import { persist } from "zustand/middleware";
 import { ipc } from "@/ipc";
 import type { AiChatMsg, ProposalDto, ToolStep } from "@/ipc/types";
 import { errorMessage } from "@/lib/error";
@@ -16,6 +18,15 @@ export interface ChatTurn {
   pending?: boolean;
 }
 
+/** 一段会话（历史的一项）。 */
+export interface Conversation {
+  id: string;
+  title: string;
+  messages: ChatTurn[];
+  createdAt: number;
+  updatedAt: number;
+}
+
 /** 当前查询上下文（提问时随附给后端）。 */
 export interface AskCtx {
   connId: string | null;
@@ -28,56 +39,137 @@ export interface AskCtx {
 interface AiState {
   open: boolean;
   busy: boolean;
-  messages: ChatTurn[];
+  conversations: Conversation[];
+  /** 当前会话 id；null 表示「新对话」草稿（尚未产生消息）。 */
+  activeId: string | null;
   setOpen: (open: boolean) => void;
   toggle: () => void;
-  clear: () => void;
+  /** 新开一个空对话（保留历史，仅切到草稿态）。 */
+  newConversation: () => void;
+  /** 切换到某段历史会话。 */
+  selectConversation: (id: string) => void;
+  /** 删除某段历史会话。 */
+  deleteConversation: (id: string) => void;
   /** 发送一条消息（面板输入框 / 内联动作共用）。无连接时静默忽略，由调用方先校验。 */
   ask: (ctx: AskCtx, message: string) => Promise<void>;
 }
 
-export const useAi = create<AiState>((set, get) => ({
-  open: true,
-  busy: false,
-  messages: [],
-  setOpen: (open) => set({ open }),
-  toggle: () => set((s) => ({ open: !s.open })),
-  clear: () => set({ messages: [] }),
-  ask: async (ctx, message) => {
-    if (get().busy || !message.trim()) return;
-    const history: AiChatMsg[] = get()
-      .messages.filter((m) => !m.pending)
-      .map((m) => ({ role: m.role, text: m.text }));
-    set((s) => ({
-      busy: true,
-      messages: [
-        ...s.messages,
-        { role: "user", text: message },
-        { role: "assistant", text: "", pending: true },
-      ],
-    }));
-    const patchLast = (patch: Partial<ChatTurn>) =>
-      set((s) => {
-        if (s.messages.length === 0) return s;
-        const messages = s.messages.slice();
-        messages[messages.length - 1] = { ...messages[messages.length - 1], ...patch };
-        return { messages };
-      });
-    try {
-      const res = await ipc.aiChat({
-        conn_id: ctx.connId ?? "",
-        database: ctx.database,
-        schema: ctx.schema,
-        table: ctx.table,
-        history,
-        message,
-      });
-      patchLast({ text: res.reply, steps: res.steps, proposals: res.proposals, pending: false });
-    } catch (e) {
-      patchLast({ text: "", pending: false });
-      toast.error(errorMessage(e));
-    } finally {
-      set({ busy: false });
-    }
-  },
-}));
+/** 稳定的空数组引用：避免 useSyncExternalStore 因每次新建 `[]` 而反复触发渲染。 */
+const EMPTY: ChatTurn[] = [];
+
+/** 当前活动会话的消息列表（无活动会话则为空）。 */
+export function activeMessages(s: AiState): ChatTurn[] {
+  if (!s.activeId) return EMPTY;
+  return s.conversations.find((c) => c.id === s.activeId)?.messages ?? EMPTY;
+}
+
+/** 用首条消息派生标题（截断）。 */
+function deriveTitle(message: string): string {
+  const t = message.trim().replace(/\s+/g, " ");
+  return t.length > 30 ? `${t.slice(0, 30)}…` : t || "…";
+}
+
+function newId(): string {
+  return crypto.randomUUID();
+}
+
+export const useAi = create<AiState>()(
+  persist(
+    (set, get) => ({
+      open: true,
+      busy: false,
+      conversations: [],
+      activeId: null,
+      setOpen: (open) => set({ open }),
+      toggle: () => set((s) => ({ open: !s.open })),
+      newConversation: () =>
+        // 清理仍为空的会话，切回草稿态。
+        set((s) => ({
+          conversations: s.conversations.filter((c) => c.messages.length > 0),
+          activeId: null,
+        })),
+      selectConversation: (id) => set({ activeId: id }),
+      deleteConversation: (id) =>
+        set((s) => ({
+          conversations: s.conversations.filter((c) => c.id !== id),
+          activeId: s.activeId === id ? null : s.activeId,
+        })),
+      ask: async (ctx, message) => {
+        if (get().busy || !message.trim()) return;
+
+        // 确定/创建当前会话。
+        let id = get().activeId;
+        const existing = id ? get().conversations.find((c) => c.id === id) : undefined;
+        if (!existing) {
+          id = newId();
+          const now = Date.now();
+          const conv: Conversation = {
+            id,
+            title: deriveTitle(message),
+            messages: [],
+            createdAt: now,
+            updatedAt: now,
+          };
+          set((s) => ({ conversations: [conv, ...s.conversations], activeId: id }));
+        }
+        const convId = id as string;
+
+        // 仅对当前会话消息做变更。
+        const patchMessages = (fn: (m: ChatTurn[]) => ChatTurn[]) =>
+          set((s) => ({
+            conversations: s.conversations.map((c) =>
+              c.id === convId ? { ...c, messages: fn(c.messages), updatedAt: Date.now() } : c,
+            ),
+          }));
+
+        const history: AiChatMsg[] = activeMessages(get())
+          .filter((m) => !m.pending)
+          .map((m) => ({ role: m.role, text: m.text }));
+
+        patchMessages((ms) => [
+          ...ms,
+          { role: "user", text: message },
+          { role: "assistant", text: "", pending: true },
+        ]);
+        set({ busy: true });
+
+        const patchLast = (patch: Partial<ChatTurn>) =>
+          patchMessages((ms) => {
+            if (ms.length === 0) return ms;
+            const next = ms.slice();
+            next[next.length - 1] = { ...next[next.length - 1], ...patch };
+            return next;
+          });
+
+        try {
+          const res = await ipc.aiChat({
+            conn_id: ctx.connId ?? "",
+            database: ctx.database,
+            schema: ctx.schema,
+            table: ctx.table,
+            history,
+            message,
+          });
+          patchLast({ text: res.reply, steps: res.steps, proposals: res.proposals, pending: false });
+        } catch (e) {
+          patchLast({ text: "", pending: false });
+          toast.error(errorMessage(e));
+        } finally {
+          set({ busy: false });
+        }
+      },
+    }),
+    {
+      name: "dblite-ai",
+      // 仅持久化历史与开关；不存 busy；剥离未完成的 pending 占位，避免重载后卡住转圈。
+      partialize: (s) => ({
+        open: s.open,
+        activeId: s.activeId,
+        conversations: s.conversations.map((c) => ({
+          ...c,
+          messages: c.messages.filter((m) => !m.pending),
+        })),
+      }),
+    },
+  ),
+);

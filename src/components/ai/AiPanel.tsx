@@ -6,7 +6,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { errorMessage } from "@/lib/error";
 import { toast } from "@/stores/toast";
-import { useAi, type ChatTurn } from "@/stores/ai";
+import { useAi, activeMessages, type ChatTurn, type Conversation } from "@/stores/ai";
 import { cn } from "@/lib/utils";
 
 interface Props {
@@ -76,9 +76,17 @@ function Markdown({
 
 export function AiPanel({ width, connId, database, schema, table, onInsertSql, onRunSql, onConfirmWrite, onClose }: Props) {
   const { t } = useTranslation();
-  const { messages, busy, clear, ask } = useAi();
+  const messages = useAi(activeMessages);
+  const busy = useAi((s) => s.busy);
+  const ask = useAi((s) => s.ask);
+  const conversations = useAi((s) => s.conversations);
+  const activeId = useAi((s) => s.activeId);
+  const newConversation = useAi((s) => s.newConversation);
+  const selectConversation = useAi((s) => s.selectConversation);
+  const deleteConversation = useAi((s) => s.deleteConversation);
   const [input, setInput] = useState("");
   const [confirmed, setConfirmed] = useState<Record<string, "done" | "busy">>({});
+  const [historyOpen, setHistoryOpen] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -112,17 +120,24 @@ export function AiPanel({ width, connId, database, schema, table, onInsertSql, o
   };
 
   return (
-    <aside style={{ width }} className="flex shrink-0 flex-col border-l border-border bg-card/40">
+    <aside style={{ width }} className="relative flex shrink-0 flex-col overflow-hidden border-l border-border bg-card/40">
       <div className="flex h-9 shrink-0 items-center gap-2 border-b border-border px-3">
         <i className="ri-sparkling-2-line text-primary" />
         <span className="text-xs font-semibold text-foreground">{t("ai.title")}</span>
         <div className="ml-auto flex items-center gap-1">
           <button
-            onClick={clear}
-            title={t("ai.clear")}
+            onClick={newConversation}
+            title={t("ai.newChat")}
             className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
           >
-            <i className="ri-delete-bin-line text-sm" />
+            <i className="ri-chat-new-line text-sm" />
+          </button>
+          <button
+            onClick={() => setHistoryOpen(true)}
+            title={t("ai.history")}
+            className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
+          >
+            <i className="ri-history-line text-sm" />
           </button>
           <button
             onClick={onClose}
@@ -179,7 +194,108 @@ export function AiPanel({ width, connId, database, schema, table, onInsertSql, o
           </button>
         </div>
       </div>
+
+      {historyOpen && (
+        <HistoryDrawer
+          conversations={conversations}
+          activeId={activeId}
+          onSelect={(id) => {
+            selectConversation(id);
+            setHistoryOpen(false);
+          }}
+          onDelete={deleteConversation}
+          onClose={() => setHistoryOpen(false)}
+        />
+      )}
     </aside>
+  );
+}
+
+/** 短时间戳：今天显示 HH:MM，否则显示 MM-DD HH:MM。 */
+function shortTime(ts: number): string {
+  const d = new Date(ts);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const hm = `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  const today = new Date();
+  const sameDay =
+    d.getFullYear() === today.getFullYear() &&
+    d.getMonth() === today.getMonth() &&
+    d.getDate() === today.getDate();
+  return sameDay ? hm : `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${hm}`;
+}
+
+/** 历史对话抽屉：从右侧滑出，列出会话，点选切换、可删除。 */
+function HistoryDrawer({
+  conversations,
+  activeId,
+  onSelect,
+  onDelete,
+  onClose,
+}: {
+  conversations: Conversation[];
+  activeId: string | null;
+  onSelect: (id: string) => void;
+  onDelete: (id: string) => void;
+  onClose: () => void;
+}) {
+  const { t } = useTranslation();
+  const items = [...conversations].sort((a, b) => b.updatedAt - a.updatedAt);
+  return (
+    <div className="absolute inset-0 z-20 flex" onClick={onClose}>
+      <div className="flex-1 bg-black/40" />
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="ml-auto flex h-full w-[82%] max-w-[300px] flex-col border-l border-border bg-card shadow-2xl animate-in slide-in-from-right duration-200"
+      >
+        <div className="flex h-9 shrink-0 items-center gap-2 border-b border-border px-3">
+          <i className="ri-history-line text-sm text-muted-foreground" />
+          <span className="text-xs font-semibold text-foreground">{t("ai.history")}</span>
+          <button
+            onClick={onClose}
+            title={t("common.close")}
+            className="ml-auto flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
+          >
+            <i className="ri-close-line text-base" />
+          </button>
+        </div>
+        <div className="flex-1 overflow-auto p-1.5">
+          {items.length === 0 ? (
+            <div className="px-2 py-10 text-center text-xs text-muted-foreground/70">
+              {t("ai.historyEmpty")}
+            </div>
+          ) : (
+            items.map((c) => (
+              <div
+                key={c.id}
+                onClick={() => onSelect(c.id)}
+                className={cn(
+                  "group flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-xs",
+                  c.id === activeId ? "bg-accent text-foreground" : "text-foreground hover:bg-accent/60",
+                )}
+              >
+                <i className="ri-chat-1-line shrink-0 text-sm text-muted-foreground" />
+                <div className="min-w-0 flex-1">
+                  <div className="truncate" title={c.title}>
+                    {c.title}
+                  </div>
+                  <div className="text-[10px] text-muted-foreground/70">{shortTime(c.updatedAt)}</div>
+                </div>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onDelete(c.id);
+                  }}
+                  title={t("ai.deleteChat")}
+                  className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted-foreground opacity-0 hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100"
+                >
+                  <i className="ri-delete-bin-line text-xs" />
+                </button>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+    </div>
   );
 }
 
