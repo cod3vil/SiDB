@@ -3,7 +3,7 @@
   "productName": "SiDB",
   "mainBinaryName": "SiDB",
   "version": "0.1.0",
-  "identifier": "app.dblite.client",
+  "identifier": "app.sidb.client",
   "build": {
     "beforeDevCommand": "pnpm dev",
     "devUrl": "http://localhost:1420",

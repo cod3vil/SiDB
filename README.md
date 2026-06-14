@@ -1,4 +1,4 @@
-# DBLite
+# SiDB
 
 轻量级跨平台数据库客户端 —— Tauri 2 + Rust + React。
 

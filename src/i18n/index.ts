@@ -10,7 +10,7 @@ export const LANGUAGES = [
   { value: "en", label: "English" },
 ] as const;
 
-const STORAGE_KEY = "dblite.lang";
+const STORAGE_KEY = "sidb.lang";
 const saved = typeof localStorage !== "undefined" ? localStorage.getItem(STORAGE_KEY) : null;
 
 i18n.use(initReactI18next).init({

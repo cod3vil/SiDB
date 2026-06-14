@@ -160,7 +160,7 @@ export const useAi = create<AiState>()(
       },
     }),
     {
-      name: "dblite-ai",
+      name: "sidb-ai",
       // 仅持久化历史与开关；不存 busy；剥离未完成的 pending 占位，避免重载后卡住转圈。
       partialize: (s) => ({
         open: s.open,

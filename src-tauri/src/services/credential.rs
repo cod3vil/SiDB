@@ -3,7 +3,7 @@
 //! 凭证（密码 / 私钥口令 / API key）只允许经此服务进系统钥匙串；
 //! 禁止写入配置文件、日志、错误信息（CLAUDE.md 架构铁律 #4）。
 //!
-//! - 生产实现 [`KeyringStore`] 封装 `keyring` crate，service 名固定 `dblite`。
+//! - 生产实现 [`KeyringStore`] 封装 `keyring` crate，service 名固定 `sidb`。
 //! - 测试 / CI（无钥匙串）用 [`MemoryStore`]。
 
 use crate::models::AppError;
@@ -44,7 +44,7 @@ pub struct KeyringStore {
 impl KeyringStore {
     pub fn new() -> Self {
         Self {
-            service: "dblite".to_string(),
+            service: "sidb".to_string(),
         }
     }
 

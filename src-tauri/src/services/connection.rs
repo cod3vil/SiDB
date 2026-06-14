@@ -1,6 +1,6 @@
 //! 连接管理（TDD §6.1）。
 //!
-//! - 连接配置持久化到 `~/.dblite/connections.json`，**只存钥匙串引用键，不含明文**。
+//! - 连接配置持久化到 `~/.sidb/connections.json`，**只存钥匙串引用键，不含明文**。
 //! - 配置读写带原子写（临时文件 + rename）。
 //! - `ConnectionManager` 持有活动会话（adapter + 可选隧道）。
 

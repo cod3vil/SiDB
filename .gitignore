@@ -30,4 +30,4 @@ Cargo.lock.orig
 !.env.example
 
 # App runtime data (created at runtime under user home; never commit)
-.dblite/
+.sidb/

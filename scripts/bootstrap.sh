@@ -8,7 +8,7 @@ cd "$(dirname "$0")/.."
 if [ ! -d .git ]; then
   git init -q
   git add -A
-  git commit -q -m "chore: M0 scaffold + M1 adapters skeleton (DBLite)"
+  git commit -q -m "chore: M0 scaffold + M1 adapters skeleton (SiDB)"
   echo "✓ git 仓库已初始化并完成首个提交"
 else
   echo "• git 仓库已存在，跳过"

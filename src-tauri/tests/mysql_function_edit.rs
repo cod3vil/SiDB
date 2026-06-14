@@ -12,8 +12,8 @@
 //!   cargo test --manifest-path src-tauri/Cargo.toml --test mysql_function_edit \
 //!     -- --ignored --nocapture
 
-use dblite_lib::adapters::{create_adapter, DbAdapter};
-use dblite_lib::models::*;
+use sidb_lib::adapters::{create_adapter, DbAdapter};
+use sidb_lib::models::*;
 use sqlx::mysql::{MySqlConnectOptions, MySqlPoolOptions, MySqlSslMode};
 use sqlx::{Executor, MySqlPool};
 

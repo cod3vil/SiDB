@@ -49,7 +49,7 @@ impl Page {
 pub fn wrap_pagination(sql: &str, page: Page) -> String {
     let sql = sql.trim().trim_end_matches(';');
     format!(
-        "SELECT * FROM ({sql}) AS _dblite_page LIMIT {} OFFSET {}",
+        "SELECT * FROM ({sql}) AS _sidb_page LIMIT {} OFFSET {}",
         page.page_size,
         page.offset()
     )
@@ -187,7 +187,7 @@ mod tests {
         let s = wrap_pagination("SELECT * FROM t;", Page { page: 2, page_size: 100 });
         assert_eq!(
             s,
-            "SELECT * FROM (SELECT * FROM t) AS _dblite_page LIMIT 100 OFFSET 200"
+            "SELECT * FROM (SELECT * FROM t) AS _sidb_page LIMIT 100 OFFSET 200"
         );
     }
 

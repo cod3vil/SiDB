@@ -5,8 +5,8 @@
 //!
 //! 统一建表（CLAUDE.md 测试数据约定）：`t_pk` / `t_no_pk` / `t_unique_nn`。
 
-use dblite_lib::adapters::{create_adapter, DbAdapter};
-use dblite_lib::models::*;
+use sidb_lib::adapters::{create_adapter, DbAdapter};
+use sidb_lib::models::*;
 
 async fn sqlite_adapter() -> (Box<dyn DbAdapter>, tempfile::NamedTempFile) {
     let file = tempfile::Builder::new().suffix(".db").tempfile().unwrap();

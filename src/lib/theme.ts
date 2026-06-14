@@ -2,7 +2,7 @@
 
 export type Theme = "light" | "dark";
 
-const STORAGE_KEY = "dblite.theme";
+const STORAGE_KEY = "sidb.theme";
 
 export function getTheme(): Theme {
   const saved = typeof localStorage !== "undefined" ? localStorage.getItem(STORAGE_KEY) : null;

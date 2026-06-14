@@ -1,4 +1,4 @@
-//! 保存的查询（PRD §3.3）：持久化到 `~/.dblite/queries.json`（原子写）。
+//! 保存的查询（PRD §3.3）：持久化到 `~/.sidb/queries.json`（原子写）。
 //! 按 (conn_id, database, schema) 归属到对象树的「查询」节点。
 
 use super::settings::data_dir;

@@ -54,7 +54,7 @@ impl russh::client::Handler for ClientHandler {
         &mut self,
         _server_public_key: &russh::keys::key::PublicKey,
     ) -> Result<bool, Self::Error> {
-        // TODO(M2 T2.2): 记录到 ~/.dblite/known_hosts，变更时弹窗警告。
+        // TODO(M2 T2.2): 记录到 ~/.sidb/known_hosts，变更时弹窗警告。
         Ok(true)
     }
 }

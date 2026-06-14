@@ -1,4 +1,4 @@
-//! DBLite 库入口：装配模块并启动 Tauri 应用。
+//! SiDB 库入口：装配模块并启动 Tauri 应用。
 
 pub mod adapters;
 pub mod ai;

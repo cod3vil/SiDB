@@ -1,4 +1,4 @@
-//! AI 审计日志（TDD §7）。所有工具调用写 `~/.dblite/logs/ai_audit.log`。
+//! AI 审计日志（TDD §7）。所有工具调用写 `~/.sidb/logs/ai_audit.log`。
 
 use crate::services::settings::data_dir;
 use std::io::Write;

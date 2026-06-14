@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "DBLite 最小权限集：仅开放用到的 API（TDD §12 Tauri allowlist 最小化）",
+  "description": "SiDB 最小权限集：仅开放用到的 API（TDD §12 Tauri allowlist 最小化）",
   "windows": ["main"],
   "permissions": [
     "core:default",
