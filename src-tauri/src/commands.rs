@@ -299,6 +299,18 @@ pub async fn get_function_ddl(
     a.function_ddl(&routine).await
 }
 
+#[tauri::command]
+pub async fn replace_function(
+    state: State<'_, AppState>,
+    conn_id: String,
+    routine: RoutineRef,
+    definition: String,
+) -> R<()> {
+    let s = session(&state, &conn_id)?;
+    let a = s.adapter.lock().await;
+    a.replace_function(&routine, &definition).await
+}
+
 // ---- 查询 / 浏览 ----------------------------------------------------------
 
 #[tauri::command]

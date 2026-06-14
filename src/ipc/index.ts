@@ -49,6 +49,8 @@ export const ipc = {
     invoke<string>("get_table_ddl", { connId, table }),
   getFunctionDdl: (connId: string, routine: RoutineRef) =>
     invoke<string>("get_function_ddl", { connId, routine }),
+  replaceFunction: (connId: string, routine: RoutineRef, definition: string) =>
+    invoke<void>("replace_function", { connId, routine, definition }),
 
   // 查询 / 浏览
   openTableData: (

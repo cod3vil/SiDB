@@ -100,6 +100,14 @@ pub trait DbAdapter: Send + Sync {
             "function definition not supported for this database".into(),
         ))
     }
+    /// 替换（更新）已存在的函数 / 存储过程。`definition` 是完整的 CREATE 语句
+    /// （[`function_ddl`](Self::function_ddl) 的输出，可能含内部分号，整体执行不得切分）。
+    /// PG 经 `CREATE OR REPLACE` 原地更新；MySQL 等无该语法的方言先删后建。
+    async fn replace_function(&self, _r: &RoutineRef, _definition: &str) -> Result<()> {
+        Err(AppError::NotEditable(
+            "function update not supported for this database".into(),
+        ))
+    }
     /// 行定位列：主键 → 唯一非空索引 → rowid（仅 SQLite）→ None。
     async fn row_identifier(&self, t: &TableRef) -> Result<Option<Vec<String>>>;
 }

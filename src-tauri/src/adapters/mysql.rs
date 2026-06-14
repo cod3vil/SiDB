@@ -433,6 +433,31 @@ impl DbAdapter for MySqlAdapter {
         Ok(string_via_bytes(row, 2))
     }
 
+    async fn replace_function(&self, r: &RoutineRef, definition: &str) -> Result<()> {
+        use sqlx::Executor;
+        let caps = self.capabilities();
+        let kw = match r.kind {
+            RoutineKind::Procedure => "PROCEDURE",
+            RoutineKind::Function => "FUNCTION",
+        };
+        // 标识符经引号化函数（来源元数据）。
+        let mut ident = String::new();
+        if let Some(db) = &r.database {
+            ident.push_str(&caps.quote_ident(db)?);
+            ident.push('.');
+        }
+        ident.push_str(&caps.quote_ident(&r.name)?);
+        let pool = self.pool()?;
+        // MySQL 无 CREATE OR REPLACE FUNCTION：先删后建。DDL 隐式提交无法回滚，
+        // 故 DROP 用 IF EXISTS；CREATE 失败会有清晰报错。
+        // 用简单查询协议整体执行——CREATE FUNCTION/PROCEDURE 不可预处理，且体内分号不应被切分。
+        pool.execute(format!("DROP {kw} IF EXISTS {ident}").as_str())
+            .await
+            .map_err(AppError::from)?;
+        pool.execute(definition).await.map_err(AppError::from)?;
+        Ok(())
+    }
+
     async fn table_schema(&self, t: &TableRef) -> Result<TableSchema> {
         let pool = self.pool()?;
         let db = t

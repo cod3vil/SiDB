@@ -55,8 +55,10 @@ interface QueryTab {
   browseTable: TableRef | null;
   page: number;
   savedQueryId?: string;
-  /** 该 tab 由「新增函数」发起：保存=执行 CREATE FUNCTION 创建函数，而非收藏查询。 */
+  /** 该 tab 为函数 tab（新增或编辑）：保存=执行/替换函数，而非收藏查询。 */
   creatingFunction?: boolean;
+  /** 由「查看定义」打开的已存在函数：保存时交后端原地替换（PG CREATE OR REPLACE / MySQL DROP+CREATE）。 */
+  functionRef?: RoutineRef;
 }
 
 /** 把表浏览的 ResultSet 包成 RunResult 行结果。 */
@@ -339,6 +341,8 @@ export default function App() {
       page: 0,
       error: null,
       title: table.name,
+      creatingFunction: false,
+      functionRef: undefined,
     });
     try {
       const rs = await ipc.openTableData(connId, table, 0, PAGE_SIZE);
@@ -369,6 +373,8 @@ export default function App() {
       activeResult: 0,
       browseTable: null,
       error: null,
+      creatingFunction: false,
+      functionRef: undefined,
     });
     try {
       const ddl = await ipc.getTableDdl(connId, table);
@@ -394,8 +400,9 @@ export default function App() {
       activeResult: 0,
       browseTable: null,
       error: null,
-      // 标记为函数 tab：保存即执行（PG `CREATE OR REPLACE FUNCTION` 原地更新），而非另存为查询。
+      // 标记为函数 tab：保存即原地更新该函数（见 saveFunction），而非另存为查询。
       creatingFunction: true,
+      functionRef: routine,
     });
     try {
       const def = await ipc.getFunctionDdl(connId, routine);
@@ -430,6 +437,8 @@ export default function App() {
       browseTable: null,
       error: null,
       creatingFunction: type === "function",
+      // 新增函数无既有定义，走创建路径（非原地替换）。
+      functionRef: undefined,
     });
     void (async () => {
       const c = connected[connId];
@@ -465,11 +474,25 @@ export default function App() {
     }
   };
 
-  // 函数 tab 的保存：执行 SQL（新增 = CREATE FUNCTION；编辑 = CREATE OR REPLACE FUNCTION），
-  // 成功后刷新树。保持 creatingFunction 标记，使后续保存仍更新函数而非另存为查询。
+  // 函数 tab 的保存。保持 creatingFunction / functionRef 标记，使后续保存仍更新函数而非另存为查询。
   const saveFunction = async () => {
     const tab = activeTab;
     if (!tab?.connId) return;
+    if (tab.functionRef) {
+      // 编辑已存在函数：交后端原地替换（PG CREATE OR REPLACE；MySQL DROP+CREATE，整体执行不切分）。
+      try {
+        await ipc.replaceFunction(tab.connId, tab.functionRef, tab.sql);
+      } catch (e) {
+        updateTab(tab.id, { error: errorMessage(e) });
+        toast.error(errorMessage(e));
+        return;
+      }
+      updateTab(tab.id, { error: null });
+      bumpTree();
+      toast.success(t("editor.functionSaved"));
+      return;
+    }
+    // 新增函数：执行脚本创建。
     const ok = await runSql();
     if (!ok) return;
     bumpTree();
