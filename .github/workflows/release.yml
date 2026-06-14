@@ -60,6 +60,18 @@ jobs:
           #   TAURI_SIGNING_PRIVATE_KEY_PASSWORD 私钥密码（无则留空）
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          # macOS 代码签名 + 公证（仅 macOS job 生效；未配置时为空 → 退回 ad-hoc）：
+          #   APPLE_CERTIFICATE           Developer ID Application 证书 .p12 的 base64
+          #   APPLE_CERTIFICATE_PASSWORD  导出 .p12 时设的密码
+          #   APPLE_SIGNING_IDENTITY      形如 "Developer ID Application: 名字 (TEAMID)"
+          #   APPLE_ID / APPLE_PASSWORD   Apple ID + App 专用密码（公证用）
+          #   APPLE_TEAM_ID               10 位团队 ID
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         with:
           tagName: ${{ github.ref_name }}
           releaseName: "SiDB ${{ github.ref_name }}"
@@ -68,7 +80,7 @@ jobs:
             - macOS（Apple Silicon / Intel）：`.dmg`
             - Windows：`.msi` 或 `.exe`（NSIS）
 
-            注：当前未做代码签名，首次打开 macOS 需在「系统设置 → 隐私与安全性」放行；Windows 可能出现 SmartScreen 提示。
+            注：若系统提示来源未验证，macOS 可在「系统设置 → 隐私与安全性」放行，Windows 可能出现 SmartScreen 提示（取决于是否已配置代码签名）。
           releaseDraft: true
           prerelease: false
           args: --target ${{ matrix.target }}
