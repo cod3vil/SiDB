@@ -61,9 +61,17 @@ impl Default for KeyringStore {
 
 impl CredentialStore for KeyringStore {
     fn set(&self, key: &str, secret: &str) -> Result<(), AppError> {
-        self.entry(key)?
-            .set_password(secret)
-            .map_err(|e| AppError::Credential(e.to_string()))
+        match self.entry(key)?.set_password(secret) {
+            Ok(()) => Ok(()),
+            // 某些平台（如 macOS 钥匙串）对已存在条目写入会报 errSecDuplicateItem
+            // （"item already exists"）而非覆盖。先删旧条目再重试一次，实现「更新」语义。
+            Err(_) => {
+                let _ = self.entry(key)?.delete_credential();
+                self.entry(key)?
+                    .set_password(secret)
+                    .map_err(|e| AppError::Credential(e.to_string()))
+            }
+        }
     }
 
     fn get(&self, key: &str) -> Result<Option<String>, AppError> {
@@ -182,5 +190,22 @@ mod tests {
         assert_eq!(keys::conn_password("u1"), "conn:u1:password");
         assert_eq!(keys::conn_ssh_passphrase("u1"), "conn:u1:ssh_passphrase");
         assert_eq!(keys::ai_api_key("anthropic"), "ai:anthropic:api_key");
+    }
+
+    /// 真实钥匙串健全性检查：对同一 key 连续写入两次（= 编辑连接覆盖密码）应成功覆盖。
+    /// 注：用户实际遇到的 "item already exists" 触发于跨签名 ACL（开发重编译换签名后
+    /// 无法修改旧条目），单测同一二进制创建+更新不复现；本用例确保 set 的「先删后写」
+    /// 回退不破坏正常覆盖路径。手动运行（读写本机钥匙串）：
+    ///   cargo test --manifest-path src-tauri/Cargo.toml keyring_overwrite -- --ignored
+    #[test]
+    #[ignore = "读写本机钥匙串，手动运行"]
+    fn keyring_overwrite_existing() {
+        let store = KeyringStore::new();
+        let k = "conn:__sidb_test_overwrite__:password";
+        store.set(k, "first").expect("first set");
+        store.set(k, "second").expect("overwrite set");
+        assert_eq!(store.get(k).unwrap().as_deref(), Some("second"));
+        store.delete(k).unwrap();
+        assert_eq!(store.get(k).unwrap(), None);
     }
 }
