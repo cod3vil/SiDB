@@ -1,5 +1,15 @@
 <div align="center">
 
+[English](./README.en.md) · **简体中文**
+
+# 作者声明
+这是一个纯AI生成的产品，除了这个声明，我并没有编写任何一行代码、文档，甚至Logo图标，这验证了AI创建完整产品的能力。
+感谢以下AI的帮助：
+- Claude Code
+- ChatGPT
+- Deepseek
+
+
 # SiDB
 
 **轻量、快速、跨平台的数据库客户端，内置 AI 助手**
