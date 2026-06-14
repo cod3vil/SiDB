@@ -57,13 +57,19 @@ impl Default for MySqlAdapter {
 }
 
 fn sql_err(e: sqlx::Error) -> AppError {
-    AppError::Sql { message: e.to_string(), position: None }
+    AppError::Sql {
+        message: e.to_string(),
+        position: None,
+    }
 }
 
 fn bytes_value(b: &[u8]) -> Value {
     const PREVIEW: usize = 64;
     let preview_hex = b.iter().take(PREVIEW).map(|x| format!("{x:02x}")).collect();
-    Value::Bytes { len: b.len(), preview_hex }
+    Value::Bytes {
+        len: b.len(),
+        preview_hex,
+    }
 }
 
 /// 启发式判定一段字节是否应作为文本展示。
@@ -74,7 +80,9 @@ fn bytes_value(b: &[u8]) -> Value {
 /// 显示成「(BLOB N bytes)」。
 fn text_from_bytes(b: &[u8]) -> Option<String> {
     let s = std::str::from_utf8(b).ok()?;
-    if s.chars().any(|c| c.is_control() && !matches!(c, '\t' | '\n' | '\r')) {
+    if s.chars()
+        .any(|c| c.is_control() && !matches!(c, '\t' | '\n' | '\r'))
+    {
         return None;
     }
     Some(s.to_string())
@@ -93,7 +101,11 @@ fn decode_row(row: &MySqlRow) -> Result<Vec<Value>> {
 
 fn decode_cell(row: &MySqlRow, i: usize, kind: &str) -> Result<Value> {
     // NULL 检查
-    if row.try_get_raw(i).map(|r| sqlx::ValueRef::is_null(&r)).unwrap_or(true) {
+    if row
+        .try_get_raw(i)
+        .map(|r| sqlx::ValueRef::is_null(&r))
+        .unwrap_or(true)
+    {
         return Ok(Value::Null);
     }
     let v = match kind {
@@ -106,7 +118,9 @@ fn decode_cell(row: &MySqlRow, i: usize, kind: &str) -> Result<Value> {
         "Decimal" => Value::Decimal(string_via_bytes(row, i)),
         "Json" => {
             let s = string_via_bytes(row, i);
-            serde_json::from_str(&s).map(Value::Json).unwrap_or(Value::Text(s))
+            serde_json::from_str(&s)
+                .map(Value::Json)
+                .unwrap_or(Value::Text(s))
         }
         "Bytes" => {
             let b: Vec<u8> = row.try_get(i).map_err(sql_err)?;
@@ -118,12 +132,20 @@ fn decode_cell(row: &MySqlRow, i: usize, kind: &str) -> Result<Value> {
         }
         "Date" => {
             let s = string_via_bytes(row, i);
-            if is_mysql_zero_date(&s) { Value::Text(s) } else { Value::Date(s) }
+            if is_mysql_zero_date(&s) {
+                Value::Text(s)
+            } else {
+                Value::Date(s)
+            }
         }
         "Time" => Value::Time(string_via_bytes(row, i)),
         "DateTime" => {
             let s = string_via_bytes(row, i);
-            if is_mysql_zero_date(&s) { Value::Text(s) } else { Value::DateTime(s) }
+            if is_mysql_zero_date(&s) {
+                Value::Text(s)
+            } else {
+                Value::DateTime(s)
+            }
         }
         _ => Value::Text(string_via_bytes(row, i)),
     };
@@ -144,7 +166,11 @@ fn string_via_bytes(row: &MySqlRow, i: usize) -> String {
 
 /// 同 `string_via_bytes`，但 NULL 返回 `None`（用于可空的元数据列）。
 fn opt_string_via_bytes(row: &MySqlRow, i: usize) -> Option<String> {
-    if row.try_get_raw(i).map(|r| sqlx::ValueRef::is_null(&r)).unwrap_or(true) {
+    if row
+        .try_get_raw(i)
+        .map(|r| sqlx::ValueRef::is_null(&r))
+        .unwrap_or(true)
+    {
         return None;
     }
     Some(string_via_bytes(row, i))
@@ -191,7 +217,9 @@ impl DbAdapter for MySqlAdapter {
         let pool = MySqlPoolOptions::new()
             .min_connections(0)
             .max_connections(5)
-            .acquire_timeout(std::time::Duration::from_secs(target.connect_timeout_secs.max(1)))
+            .acquire_timeout(std::time::Duration::from_secs(
+                target.connect_timeout_secs.max(1),
+            ))
             .connect_with(opts.clone())
             .await
             .map_err(AppError::from)?;
@@ -223,7 +251,9 @@ impl DbAdapter for MySqlAdapter {
             .map_err(AppError::from)?;
         self.threads.insert(query_id.to_string(), thread_id);
 
-        let result = bind_params(sqlx::query(sql), params).fetch_all(&mut *conn).await;
+        let result = bind_params(sqlx::query(sql), params)
+            .fetch_all(&mut *conn)
+            .await;
         self.threads.remove(query_id);
         let rows = result.map_err(AppError::from)?;
 
@@ -250,7 +280,10 @@ impl DbAdapter for MySqlAdapter {
         for r in &rows {
             out_rows.push(decode_row(r)?);
         }
-        Ok(RawResultSet { columns, rows: out_rows })
+        Ok(RawResultSet {
+            columns,
+            rows: out_rows,
+        })
     }
 
     async fn execute(&self, _query_id: &str, sql: &str, params: &[Value]) -> Result<ExecResult> {
@@ -372,7 +405,11 @@ impl DbAdapter for MySqlAdapter {
                 let ty = string_via_bytes(r, 1);
                 Some(TableInfo {
                     name,
-                    kind: if ty.contains("VIEW") { TableKind::View } else { TableKind::Table },
+                    kind: if ty.contains("VIEW") {
+                        TableKind::View
+                    } else {
+                        TableKind::Table
+                    },
                 })
             })
             .collect())
@@ -490,7 +527,11 @@ impl DbAdapter for MySqlAdapter {
             let db_type: String = string_via_bytes(r, 1);
             let nullable: String = {
                 let s = string_via_bytes(r, 2);
-                if s.is_empty() { "YES".into() } else { s }
+                if s.is_empty() {
+                    "YES".into()
+                } else {
+                    s
+                }
             };
             let default: Option<String> = opt_string_via_bytes(r, 3);
             let key: String = string_via_bytes(r, 4);
@@ -516,7 +557,8 @@ impl DbAdapter for MySqlAdapter {
         .fetch_all(pool)
         .await
         .map_err(AppError::from)?;
-        let mut idx_map: std::collections::BTreeMap<String, (bool, Vec<String>)> = Default::default();
+        let mut idx_map: std::collections::BTreeMap<String, (bool, Vec<String>)> =
+            Default::default();
         for r in &idx_rows {
             let name: String = string_via_bytes(r, 0);
             let col: String = string_via_bytes(r, 1);

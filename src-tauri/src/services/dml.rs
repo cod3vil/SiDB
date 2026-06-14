@@ -81,7 +81,11 @@ pub fn build_stmt(caps: &DbCapabilities, table: &TableRef, change: &Change) -> R
                 idx += 1;
             }
             let where_clause = build_where(caps, key, &mut params, &mut idx)?;
-            let sql = format!("UPDATE {qt} SET {} WHERE {}", set_parts.join(", "), where_clause);
+            let sql = format!(
+                "UPDATE {qt} SET {} WHERE {}",
+                set_parts.join(", "),
+                where_clause
+            );
             Ok(Stmt { sql, params })
         }
         Change::Delete { key } => {
@@ -161,12 +165,22 @@ pub fn expand_for_preview(stmt: &Stmt) -> String {
 fn literal(v: &Value) -> String {
     match v {
         Value::Null => "NULL".into(),
-        Value::Bool(b) => if *b { "TRUE".into() } else { "FALSE".into() },
+        Value::Bool(b) => {
+            if *b {
+                "TRUE".into()
+            } else {
+                "FALSE".into()
+            }
+        }
         Value::Int(n) => n.to_string(),
         Value::UInt(n) => n.to_string(),
         Value::Float(f) => f.to_string(),
         Value::Decimal(s) => s.clone(),
-        Value::Text(s) | Value::Unknown(s) | Value::Date(s) | Value::Time(s) | Value::DateTime(s) => {
+        Value::Text(s)
+        | Value::Unknown(s)
+        | Value::Date(s)
+        | Value::Time(s)
+        | Value::DateTime(s) => {
             format!("'{}'", s.replace('\'', "''"))
         }
         Value::Json(j) => format!("'{}'", j.to_string().replace('\'', "''")),
@@ -205,10 +219,18 @@ mod tests {
         }
     }
     fn tref() -> TableRef {
-        TableRef { database: None, schema: Some("public".into()), name: "users".into() }
+        TableRef {
+            database: None,
+            schema: Some("public".into()),
+            name: "users".into(),
+        }
     }
     fn tref_mysql() -> TableRef {
-        TableRef { database: Some("shop".into()), schema: None, name: "users".into() }
+        TableRef {
+            database: Some("shop".into()),
+            schema: None,
+            name: "users".into(),
+        }
     }
 
     #[test]
@@ -232,7 +254,10 @@ mod tests {
         let mut key = BTreeMap::new();
         key.insert("id".to_string(), Value::Int(7));
         let s = build_stmt(&pg_caps(), &tref(), &Change::Update { key, set }).unwrap();
-        assert_eq!(s.sql, r#"UPDATE "public"."users" SET "name" = $1 WHERE "id" = $2"#);
+        assert_eq!(
+            s.sql,
+            r#"UPDATE "public"."users" SET "name" = $1 WHERE "id" = $2"#
+        );
         assert_eq!(s.params, vec![Value::Text("bob".into()), Value::Int(7)]);
     }
 

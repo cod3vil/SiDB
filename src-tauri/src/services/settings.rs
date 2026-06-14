@@ -59,7 +59,9 @@ impl Default for Settings {
 
 /// 应用数据根目录：`~/.sidb/`（TDD §6.1）。
 pub fn data_dir() -> PathBuf {
-    dirs::home_dir().unwrap_or_else(|| PathBuf::from(".")).join(".sidb")
+    dirs::home_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join(".sidb")
 }
 
 fn settings_path() -> PathBuf {

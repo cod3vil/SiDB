@@ -17,7 +17,10 @@ pub type TunnelId = String;
 #[derive(Clone)]
 pub enum SshAuth {
     Password(String),
-    Key { pem: String, passphrase: Option<String> },
+    Key {
+        pem: String,
+        passphrase: Option<String>,
+    },
 }
 
 #[derive(Clone)]
@@ -140,7 +143,10 @@ impl TunnelManager {
         let id = uuid::Uuid::new_v4().to_string();
         self.tunnels.insert(
             id.clone(),
-            TunnelHandle { shutdown: shutdown_tx, local_addr },
+            TunnelHandle {
+                shutdown: shutdown_tx,
+                local_addr,
+            },
         );
         Ok((id, local_addr))
     }
@@ -160,10 +166,7 @@ impl TunnelManager {
 ///
 /// russh 的 `Channel` 提供 `into_stream()`（实现 AsyncRead + AsyncWrite），
 /// 直接用 `copy_bidirectional` 即可，避免手工 select 造成的并发借用问题。
-async fn forward(
-    socket: &mut tokio::net::TcpStream,
-    channel: russh::Channel<russh::client::Msg>,
-) {
+async fn forward(socket: &mut tokio::net::TcpStream, channel: russh::Channel<russh::client::Msg>) {
     let mut stream = channel.into_stream();
     if let Err(e) = tokio::io::copy_bidirectional(socket, &mut stream).await {
         tracing::debug!("tunnel forward closed: {e}");

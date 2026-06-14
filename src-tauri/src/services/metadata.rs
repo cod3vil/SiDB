@@ -6,7 +6,9 @@ use crate::models::*;
 /// 由 `row_identifier()` 推导可编辑性（PRD §3.5.1）。
 pub async fn editability(adapter: &dyn DbAdapter, t: &TableRef) -> Result<Editability> {
     match adapter.row_identifier(t).await? {
-        Some(cols) if !cols.is_empty() => Ok(Editability::Editable { row_id_columns: cols }),
+        Some(cols) if !cols.is_empty() => Ok(Editability::Editable {
+            row_id_columns: cols,
+        }),
         _ => Ok(Editability::ReadOnly {
             reason: "表无主键或唯一非空索引，结果集只读".into(),
         }),

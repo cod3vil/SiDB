@@ -36,8 +36,14 @@ fn escape_csv(s: &str) -> String {
 }
 
 /// 编码一行 CSV（含换行）。
-pub fn csv_row<'a>(values: impl IntoIterator<Item = &'a Value>, null_literal: Option<&str>) -> String {
-    let cells: Vec<String> = values.into_iter().map(|v| csv_field(v, null_literal)).collect();
+pub fn csv_row<'a>(
+    values: impl IntoIterator<Item = &'a Value>,
+    null_literal: Option<&str>,
+) -> String {
+    let cells: Vec<String> = values
+        .into_iter()
+        .map(|v| csv_field(v, null_literal))
+        .collect();
     let mut line = cells.join(",");
     line.push_str("\r\n");
     line
@@ -59,7 +65,9 @@ fn value_to_json(v: &Value) -> serde_json::Value {
         Value::Bool(b) => J::Bool(*b),
         Value::Int(n) => J::from(*n),
         Value::UInt(n) => J::from(*n),
-        Value::Float(f) => serde_json::Number::from_f64(*f).map(J::Number).unwrap_or(J::Null),
+        Value::Float(f) => serde_json::Number::from_f64(*f)
+            .map(J::Number)
+            .unwrap_or(J::Null),
         Value::Decimal(s) | Value::Text(s) | Value::Unknown(s) => J::String(s.clone()),
         Value::Date(s) | Value::Time(s) | Value::DateTime(s) => J::String(s.clone()),
         Value::Json(j) => j.clone(),

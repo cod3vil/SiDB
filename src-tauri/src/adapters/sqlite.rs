@@ -53,9 +53,10 @@ impl Default for SqliteAdapter {
 fn decode_row(row: &SqliteRow, kinds: &[&'static str]) -> Result<Vec<Value>> {
     let mut out = Vec::with_capacity(row.len());
     for (i, kind) in kinds.iter().enumerate().take(row.len()) {
-        let raw = row
-            .try_get_raw(i)
-            .map_err(|e| AppError::Sql { message: e.to_string(), position: None })?;
+        let raw = row.try_get_raw(i).map_err(|e| AppError::Sql {
+            message: e.to_string(),
+            position: None,
+        })?;
         if raw.is_null() {
             out.push(Value::Null);
             continue;
@@ -95,7 +96,10 @@ fn decode_row(row: &SqliteRow, kinds: &[&'static str]) -> Result<Vec<Value>> {
 }
 
 fn sql_err(e: sqlx::Error) -> AppError {
-    AppError::Sql { message: e.to_string(), position: None }
+    AppError::Sql {
+        message: e.to_string(),
+        position: None,
+    }
 }
 
 /// 大对象不全量进前端：>1KB 只带 preview（TDD §4.3）。
@@ -106,7 +110,10 @@ fn bytes_value(b: &[u8]) -> Value {
         .take(PREVIEW)
         .map(|x| format!("{x:02x}"))
         .collect::<String>();
-    Value::Bytes { len: b.len(), preview_hex }
+    Value::Bytes {
+        len: b.len(),
+        preview_hex,
+    }
 }
 
 /// 绑定参数到查询。SQLite 用 `?` 占位符。
@@ -146,7 +153,9 @@ impl DbAdapter for SqliteAdapter {
             .map_err(AppError::from)?
             .create_if_missing(true)
             .journal_mode(sqlx::sqlite::SqliteJournalMode::Wal)
-            .busy_timeout(std::time::Duration::from_secs(target.connect_timeout_secs.max(1)));
+            .busy_timeout(std::time::Duration::from_secs(
+                target.connect_timeout_secs.max(1),
+            ));
         let pool = SqlitePoolOptions::new()
             .max_connections(4)
             .connect_with(opts)
@@ -199,7 +208,10 @@ impl DbAdapter for SqliteAdapter {
         for r in &rows {
             out_rows.push(decode_row(r, &kinds)?);
         }
-        Ok(RawResultSet { columns, rows: out_rows })
+        Ok(RawResultSet {
+            columns,
+            rows: out_rows,
+        })
     }
 
     async fn execute(&self, _query_id: &str, sql: &str, params: &[Value]) -> Result<ExecResult> {
@@ -242,7 +254,9 @@ impl DbAdapter for SqliteAdapter {
 
     async fn list_databases(&self) -> Result<Vec<DatabaseInfo>> {
         // SQLite 固定单库。
-        Ok(vec![DatabaseInfo { name: "main".into() }])
+        Ok(vec![DatabaseInfo {
+            name: "main".into(),
+        }])
     }
 
     async fn list_schemas(&self, _db: &str) -> Result<Vec<String>> {
@@ -264,7 +278,11 @@ impl DbAdapter for SqliteAdapter {
             let ty: String = r.try_get("type").map_err(sql_err)?;
             out.push(TableInfo {
                 name,
-                kind: if ty == "view" { TableKind::View } else { TableKind::Table },
+                kind: if ty == "view" {
+                    TableKind::View
+                } else {
+                    TableKind::Table
+                },
             });
         }
         Ok(out)
@@ -345,15 +363,22 @@ impl DbAdapter for SqliteAdapter {
             });
         }
 
-        Ok(TableSchema { table: t.clone(), columns, indexes, foreign_keys })
+        Ok(TableSchema {
+            table: t.clone(),
+            columns,
+            indexes,
+            foreign_keys,
+        })
     }
 
     async fn table_ddl(&self, t: &TableRef) -> Result<String> {
-        let row = sqlx::query("SELECT sql FROM sqlite_master WHERE name = ? AND type IN ('table','view')")
-            .bind(&t.name)
-            .fetch_optional(self.pool()?)
-            .await
-            .map_err(AppError::from)?;
+        let row = sqlx::query(
+            "SELECT sql FROM sqlite_master WHERE name = ? AND type IN ('table','view')",
+        )
+        .bind(&t.name)
+        .fetch_optional(self.pool()?)
+        .await
+        .map_err(AppError::from)?;
         match row {
             Some(r) => Ok(r.try_get::<String, _>("sql").map_err(sql_err)?),
             None => Err(AppError::Sql {
@@ -412,7 +437,9 @@ impl DbAdapter for SqliteAdapter {
             // 全部列 NOT NULL 才能作为定位键
             let all_not_null = cols.iter().all(|c| {
                 col_rows.iter().any(|cr| {
-                    cr.try_get::<String, _>("name").map(|n| &n == c).unwrap_or(false)
+                    cr.try_get::<String, _>("name")
+                        .map(|n| &n == c)
+                        .unwrap_or(false)
                         && cr.try_get::<i64, _>("notnull").unwrap_or(0) == 1
                 })
             });

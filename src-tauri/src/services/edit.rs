@@ -67,7 +67,10 @@ impl EditService {
             }
         }
 
-        Ok(CommitResult { applied: results.len(), affected_total })
+        Ok(CommitResult {
+            applied: results.len(),
+            affected_total,
+        })
     }
 }
 
@@ -86,7 +89,10 @@ mod tests {
 
     #[test]
     fn same_set_ignores_order() {
-        assert!(same_set(&["a".into(), "b".into()], &["b".into(), "a".into()]));
+        assert!(same_set(
+            &["a".into(), "b".into()],
+            &["b".into(), "a".into()]
+        ));
         assert!(!same_set(&["a".into()], &["a".into(), "b".into()]));
     }
 }

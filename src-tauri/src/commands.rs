@@ -69,7 +69,10 @@ async fn open_tunnel(
                 .ok_or_else(|| AppError::Ssh("缺少私钥路径".into()))?;
             let pem = std::fs::read_to_string(&path)
                 .map_err(|e| AppError::Ssh(format!("读取私钥失败: {e}")))?;
-            SshAuth::Key { pem, passphrase: ssh_passphrase }
+            SshAuth::Key {
+                pem,
+                passphrase: ssh_passphrase,
+            }
         }
     };
     let spec = TunnelSpec {
@@ -180,7 +183,11 @@ pub async fn connect(state: State<'_, AppState>, conn_id: String) -> R<DbCapabil
         read: dur(cfg.read_timeout_secs),
         write: dur(cfg.write_timeout_secs),
     };
-    match state.conns.connect(&cfg, target, tunnel_id.clone(), timeouts).await {
+    match state
+        .conns
+        .connect(&cfg, target, tunnel_id.clone(), timeouts)
+        .await
+    {
         Ok(caps) => Ok(caps),
         Err(e) => {
             // 连接失败时回收隧道。
@@ -342,7 +349,9 @@ pub async fn open_table_data(
     let s = session(&state, &conn_id)?;
     let a = s.adapter.lock().await;
     let pg = Page { page, page_size };
-    let sort = sort_column.as_deref().map(|c| (c, sort_asc.unwrap_or(true)));
+    let sort = sort_column
+        .as_deref()
+        .map(|c| (c, sort_asc.unwrap_or(true)));
     let sql = query::browse_sql(&s.caps, &table, pg, sort)?;
     let qid = uuid::Uuid::new_v4().to_string();
     let started = std::time::Instant::now();
@@ -394,19 +403,23 @@ pub async fn run_sql(
         .into_iter()
         .map(|o| match o {
             query::RunOutcome::Rows(rs) => RunResult::Rows(rs),
-            query::RunOutcome::Affected { affected_rows, last_insert_id, elapsed_ms, statement } => {
-                RunResult::Affected { affected_rows, last_insert_id, elapsed_ms, statement }
-            }
+            query::RunOutcome::Affected {
+                affected_rows,
+                last_insert_id,
+                elapsed_ms,
+                statement,
+            } => RunResult::Affected {
+                affected_rows,
+                last_insert_id,
+                elapsed_ms,
+                statement,
+            },
         })
         .collect())
 }
 
 #[tauri::command]
-pub async fn cancel_query(
-    state: State<'_, AppState>,
-    conn_id: String,
-    query_id: String,
-) -> R<()> {
+pub async fn cancel_query(state: State<'_, AppState>, conn_id: String, query_id: String) -> R<()> {
     let s = session(&state, &conn_id)?;
     let a = s.adapter.lock().await;
     a.cancel(&query_id).await
@@ -479,9 +492,12 @@ pub struct AiProviderInput {
 pub async fn ai_test_provider(state: State<'_, AppState>, input: AiProviderInput) -> R<()> {
     let result = match input.provider.as_str() {
         "anthropic" => {
-            AnthropicProvider { api_key: input.api_key.clone(), model: input.model }
-                .test()
-                .await
+            AnthropicProvider {
+                api_key: input.api_key.clone(),
+                model: input.model,
+            }
+            .test()
+            .await
         }
         _ => {
             let base = input
@@ -533,11 +549,16 @@ fn build_provider(state: &AppState) -> R<Box<dyn AiProvider>> {
         .filter(|k| !k.is_empty())
         .ok_or_else(|| AppError::Internal("AI 未配置：请先在设置中填写并测试 API Key".into()))?;
     let provider: Box<dyn AiProvider> = match ai.provider.as_str() {
-        "anthropic" => Box::new(AnthropicProvider { api_key: key, model: ai.model }),
+        "anthropic" => Box::new(AnthropicProvider {
+            api_key: key,
+            model: ai.model,
+        }),
         _ => Box::new(OpenAiCompatProvider {
             api_key: key,
             model: ai.model,
-            base_url: ai.base_url.unwrap_or_else(|| "https://api.openai.com/v1".into()),
+            base_url: ai
+                .base_url
+                .unwrap_or_else(|| "https://api.openai.com/v1".into()),
         }),
     };
     Ok(provider)
@@ -560,7 +581,11 @@ pub async fn ai_chat(
         .history
         .into_iter()
         .map(|m| {
-            let role = if m.role == "assistant" { "assistant" } else { "user" };
+            let role = if m.role == "assistant" {
+                "assistant"
+            } else {
+                "user"
+            };
             crate::ai::provider::Msg {
                 role: role.into(),
                 content: vec![crate::ai::provider::ContentBlock::Text { text: m.text }],
@@ -604,17 +629,35 @@ pub async fn ai_confirm_write(
     }
     let s = session(&state, &input.conn_id)?;
     let a = s.adapter.lock().await;
-    let pg = Page { page: 0, page_size: 1 };
-    let outcomes =
-        query::run_script(&**a, "ai_write", &p.sql, pg, s.read_timeout, s.write_timeout).await?;
+    let pg = Page {
+        page: 0,
+        page_size: 1,
+    };
+    let outcomes = query::run_script(
+        &**a,
+        "ai_write",
+        &p.sql,
+        pg,
+        s.read_timeout,
+        s.write_timeout,
+    )
+    .await?;
     crate::ai::audit::record(&input.conn_id, "confirm_write", &p.sql, "executed");
     Ok(outcomes
         .into_iter()
         .map(|o| match o {
             query::RunOutcome::Rows(rs) => RunResult::Rows(rs),
-            query::RunOutcome::Affected { affected_rows, last_insert_id, elapsed_ms, statement } => {
-                RunResult::Affected { affected_rows, last_insert_id, elapsed_ms, statement }
-            }
+            query::RunOutcome::Affected {
+                affected_rows,
+                last_insert_id,
+                elapsed_ms,
+                statement,
+            } => RunResult::Affected {
+                affected_rows,
+                last_insert_id,
+                elapsed_ms,
+                statement,
+            },
         })
         .collect())
 }

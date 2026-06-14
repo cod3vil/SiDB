@@ -24,13 +24,22 @@ pub async fn schema_brief(
     if tables.is_empty() {
         return String::new();
     }
-    let names: Vec<&str> = tables.iter().take(MAX_TABLES).map(|t| t.name.as_str()).collect();
+    let names: Vec<&str> = tables
+        .iter()
+        .take(MAX_TABLES)
+        .map(|t| t.name.as_str())
+        .collect();
     let more = if tables.len() > MAX_TABLES {
         format!(" …(+{} more)", tables.len() - MAX_TABLES)
     } else {
         String::new()
     };
-    format!("当前数据库的表（共 {}）：{}{}", tables.len(), names.join(", "), more)
+    format!(
+        "当前数据库的表（共 {}）：{}{}",
+        tables.len(),
+        names.join(", "),
+        more
+    )
 }
 
 /// 选中表的列清单简介（注入系统提示，省去模型再调 get_schema）。失败/为空返回空串。

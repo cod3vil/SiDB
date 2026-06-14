@@ -110,7 +110,10 @@ async fn mysql_function_edit_roundtrip() {
     // 1) 读取定义（SHOW CREATE FUNCTION）——被测路径。
     let def = a.function_ddl(&routine).await.expect("function_ddl");
     println!("---- function_ddl ----\n{def}\n----------------------");
-    assert!(def.to_uppercase().contains("FUNCTION"), "应是 CREATE …FUNCTION：{def}");
+    assert!(
+        def.to_uppercase().contains("FUNCTION"),
+        "应是 CREATE …FUNCTION：{def}"
+    );
     assert!(def.contains(FN_NAME), "定义应含函数名");
     assert!(def.contains("x + 1"), "定义应含原函数体");
 
@@ -124,7 +127,9 @@ async fn mysql_function_edit_roundtrip() {
     // 2) 模拟在编辑器里把 +1 改成 +100，保存 → replace_function（MySQL: DROP+CREATE，被测路径）。
     let edited = def.replace("x + 1", "x + 100");
     assert_ne!(edited, def, "编辑后定义应有变化");
-    a.replace_function(&routine, &edited).await.expect("replace_function");
+    a.replace_function(&routine, &edited)
+        .await
+        .expect("replace_function");
 
     // 3) 更新已生效：add_one(5) = 105，定义含新体、无旧体残留。
     let v: i64 = sqlx::query_scalar(&format!("SELECT {FN_NAME}(5)"))
@@ -141,7 +146,10 @@ async fn mysql_function_edit_roundtrip() {
     raw.execute(format!("DROP FUNCTION IF EXISTS {FN_NAME}").as_str())
         .await
         .expect("teardown drop");
-    assert!(a.function_ddl(&routine).await.is_err(), "清理后该函数应已不存在");
+    assert!(
+        a.function_ddl(&routine).await.is_err(),
+        "清理后该函数应已不存在"
+    );
 
     println!("✅ MySQL 函数编辑保存验证通过：6 → 105，测试函数已清理");
 }
@@ -171,7 +179,9 @@ async fn mysql_function_create() {
         "CREATE FUNCTION {NAME}(x INT) RETURNS INT DETERMINISTIC \
          BEGIN DECLARE r INT; SET r = x * 2; RETURN r; END"
     );
-    a.create_function(&definition).await.expect("create_function");
+    a.create_function(&definition)
+        .await
+        .expect("create_function");
 
     // 创建成功且可读、可调用：create(21) -> 42。
     let def = a.function_ddl(&routine).await.expect("function_ddl");

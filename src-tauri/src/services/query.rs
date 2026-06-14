@@ -33,7 +33,10 @@ pub struct Page {
 
 impl Default for Page {
     fn default() -> Self {
-        Self { page: 0, page_size: 1000 }
+        Self {
+            page: 0,
+            page_size: 1000,
+        }
     }
 }
 
@@ -66,9 +69,16 @@ pub fn browse_sql(
     let mut sql = format!("SELECT * FROM {qt}");
     if let Some((col, asc)) = sort {
         let qc = caps.quote_ident(col)?;
-        sql.push_str(&format!(" ORDER BY {qc} {}", if asc { "ASC" } else { "DESC" }));
+        sql.push_str(&format!(
+            " ORDER BY {qc} {}",
+            if asc { "ASC" } else { "DESC" }
+        ));
     }
-    sql.push_str(&format!(" LIMIT {} OFFSET {}", page.page_size, page.offset()));
+    sql.push_str(&format!(
+        " LIMIT {} OFFSET {}",
+        page.page_size,
+        page.offset()
+    ));
     Ok(sql)
 }
 
@@ -102,7 +112,9 @@ pub async fn count_table(
 ) -> Option<u64> {
     let qt = caps.quote_table(table).ok()?;
     let sql = format!("SELECT COUNT(*) FROM {qt}");
-    let raw = with_timeout(timeout, adapter.query("__count__", &sql, &[])).await.ok()?;
+    let raw = with_timeout(timeout, adapter.query("__count__", &sql, &[]))
+        .await
+        .ok()?;
     match raw.rows.first()?.first()? {
         Value::Int(n) => (*n >= 0).then_some(*n as u64),
         Value::UInt(n) => Some(*n),
@@ -137,7 +149,9 @@ pub async fn run_script(
                 total_hint: None,
                 page: page_info(page, returned),
                 elapsed_ms: started.elapsed().as_millis() as u64,
-                editable: Editability::ReadOnly { reason: "custom-query".into() },
+                editable: Editability::ReadOnly {
+                    reason: "custom-query".into(),
+                },
             }));
         } else {
             let res = with_timeout(write_timeout, adapter.execute(&qid, stmt, &[])).await?;
@@ -153,7 +167,10 @@ pub async fn run_script(
 }
 
 fn is_result_producing(kw: &str) -> bool {
-    matches!(kw, "SELECT" | "WITH" | "SHOW" | "PRAGMA" | "EXPLAIN" | "DESCRIBE" | "DESC")
+    matches!(
+        kw,
+        "SELECT" | "WITH" | "SHOW" | "PRAGMA" | "EXPLAIN" | "DESCRIBE" | "DESC"
+    )
 }
 
 /// 高层服务封装（持有取消能力的入口由 commands 层注入 session）。
@@ -184,7 +201,13 @@ mod tests {
 
     #[test]
     fn wrap_pagination_strips_semicolon() {
-        let s = wrap_pagination("SELECT * FROM t;", Page { page: 2, page_size: 100 });
+        let s = wrap_pagination(
+            "SELECT * FROM t;",
+            Page {
+                page: 2,
+                page_size: 100,
+            },
+        );
         assert_eq!(
             s,
             "SELECT * FROM (SELECT * FROM t) AS _sidb_page LIMIT 100 OFFSET 200"
@@ -193,17 +216,45 @@ mod tests {
 
     #[test]
     fn browse_with_sort() {
-        let t = TableRef { database: None, schema: None, name: "t".into() };
-        let s = browse_sql(&caps(), &t, Page { page: 0, page_size: 50 }, Some(("id", false))).unwrap();
-        assert_eq!(s, r#"SELECT * FROM "t" ORDER BY "id" DESC LIMIT 50 OFFSET 0"#);
+        let t = TableRef {
+            database: None,
+            schema: None,
+            name: "t".into(),
+        };
+        let s = browse_sql(
+            &caps(),
+            &t,
+            Page {
+                page: 0,
+                page_size: 50,
+            },
+            Some(("id", false)),
+        )
+        .unwrap();
+        assert_eq!(
+            s,
+            r#"SELECT * FROM "t" ORDER BY "id" DESC LIMIT 50 OFFSET 0"#
+        );
     }
 
     #[test]
     fn page_info_offsets() {
-        let pi = page_info(Page { page: 1, page_size: 1000 }, 1000);
+        let pi = page_info(
+            Page {
+                page: 1,
+                page_size: 1000,
+            },
+            1000,
+        );
         assert_eq!(pi.offset, 1001);
         assert!(pi.has_more);
-        let pi2 = page_info(Page { page: 1, page_size: 1000 }, 320);
+        let pi2 = page_info(
+            Page {
+                page: 1,
+                page_size: 1000,
+            },
+            320,
+        );
         assert!(!pi2.has_more);
     }
 

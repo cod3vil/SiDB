@@ -13,4 +13,6 @@ pub mod proposals;
 pub mod provider;
 pub mod tools;
 
-pub use provider::{AiProvider, AnthropicProvider, ChatRequest, ChatResponse, Msg, OpenAiCompatProvider, ToolDef};
+pub use provider::{
+    AiProvider, AnthropicProvider, ChatRequest, ChatResponse, Msg, OpenAiCompatProvider, ToolDef,
+};

@@ -53,13 +53,19 @@ impl Default for PostgresAdapter {
 }
 
 fn sql_err(e: sqlx::Error) -> AppError {
-    AppError::Sql { message: e.to_string(), position: None }
+    AppError::Sql {
+        message: e.to_string(),
+        position: None,
+    }
 }
 
 fn bytes_value(b: &[u8]) -> Value {
     const PREVIEW: usize = 64;
     let preview_hex = b.iter().take(PREVIEW).map(|x| format!("{x:02x}")).collect();
-    Value::Bytes { len: b.len(), preview_hex }
+    Value::Bytes {
+        len: b.len(),
+        preview_hex,
+    }
 }
 
 fn decode_row(row: &PgRow) -> Result<Vec<Value>> {
@@ -73,7 +79,11 @@ fn decode_row(row: &PgRow) -> Result<Vec<Value>> {
 }
 
 fn decode_cell(row: &PgRow, i: usize, kind: &str) -> Result<Value> {
-    if row.try_get_raw(i).map(|r| sqlx::ValueRef::is_null(&r)).unwrap_or(true) {
+    if row
+        .try_get_raw(i)
+        .map(|r| sqlx::ValueRef::is_null(&r))
+        .unwrap_or(true)
+    {
         return Ok(Value::Null);
     }
     let v = match kind {
@@ -191,7 +201,9 @@ impl DbAdapter for PostgresAdapter {
         let pool = PgPoolOptions::new()
             .min_connections(0)
             .max_connections(5)
-            .acquire_timeout(std::time::Duration::from_secs(target.connect_timeout_secs.max(1)))
+            .acquire_timeout(std::time::Duration::from_secs(
+                target.connect_timeout_secs.max(1),
+            ))
             .connect_with(opts.clone())
             .await
             .map_err(AppError::from)?;
@@ -221,7 +233,9 @@ impl DbAdapter for PostgresAdapter {
             .map_err(AppError::from)?;
         self.backends.insert(query_id.to_string(), pid);
 
-        let result = bind_params(sqlx::query(sql), params).fetch_all(&mut *conn).await;
+        let result = bind_params(sqlx::query(sql), params)
+            .fetch_all(&mut *conn)
+            .await;
         self.backends.remove(query_id);
         let rows = result.map_err(AppError::from)?;
 
@@ -248,7 +262,10 @@ impl DbAdapter for PostgresAdapter {
         for r in &rows {
             out_rows.push(decode_row(r)?);
         }
-        Ok(RawResultSet { columns, rows: out_rows })
+        Ok(RawResultSet {
+            columns,
+            rows: out_rows,
+        })
     }
 
     async fn execute(&self, _query_id: &str, sql: &str, params: &[Value]) -> Result<ExecResult> {
@@ -256,7 +273,10 @@ impl DbAdapter for PostgresAdapter {
             .execute(self.pool()?)
             .await
             .map_err(AppError::from)?;
-        Ok(ExecResult { affected_rows: res.rows_affected(), last_insert_id: None })
+        Ok(ExecResult {
+            affected_rows: res.rows_affected(),
+            last_insert_id: None,
+        })
     }
 
     async fn cancel(&self, query_id: &str) -> Result<()> {
@@ -288,7 +308,10 @@ impl DbAdapter for PostgresAdapter {
                 .execute(&mut *tx)
                 .await
                 .map_err(AppError::from)?;
-            results.push(ExecResult { affected_rows: res.rows_affected(), last_insert_id: None });
+            results.push(ExecResult {
+                affected_rows: res.rows_affected(),
+                last_insert_id: None,
+            });
         }
         tx.commit().await.map_err(AppError::from)?;
         Ok(results)
@@ -316,7 +339,10 @@ impl DbAdapter for PostgresAdapter {
         .fetch_all(self.pool()?)
         .await
         .map_err(AppError::from)?;
-        Ok(rows.iter().filter_map(|r| r.try_get::<String, _>(0).ok()).collect())
+        Ok(rows
+            .iter()
+            .filter_map(|r| r.try_get::<String, _>(0).ok())
+            .collect())
     }
 
     async fn list_tables(&self, _db: &str, schema: Option<&str>) -> Result<Vec<TableInfo>> {
@@ -337,7 +363,11 @@ impl DbAdapter for PostgresAdapter {
                 let kind: String = r.try_get("relkind").unwrap_or_default();
                 Some(TableInfo {
                     name,
-                    kind: if kind == "v" || kind == "m" { TableKind::View } else { TableKind::Table },
+                    kind: if kind == "v" || kind == "m" {
+                        TableKind::View
+                    } else {
+                        TableKind::Table
+                    },
                 })
             })
             .collect())
@@ -361,7 +391,11 @@ impl DbAdapter for PostgresAdapter {
                 let kind: String = r.try_get("prokind").unwrap_or_default();
                 Some(RoutineInfo {
                     name,
-                    kind: if kind == "p" { RoutineKind::Procedure } else { RoutineKind::Function },
+                    kind: if kind == "p" {
+                        RoutineKind::Procedure
+                    } else {
+                        RoutineKind::Function
+                    },
                     id: r.try_get("oid").ok(),
                 })
             })
@@ -475,14 +509,23 @@ impl DbAdapter for PostgresAdapter {
                 let cols: String = r.try_get("cols").unwrap_or_default();
                 IndexInfo {
                     name: r.try_get::<String, _>("idx").unwrap_or_default(),
-                    columns: cols.split(',').filter(|s| !s.is_empty()).map(String::from).collect(),
+                    columns: cols
+                        .split(',')
+                        .filter(|s| !s.is_empty())
+                        .map(String::from)
+                        .collect(),
                     unique: r.try_get("indisunique").unwrap_or(false),
                     primary: r.try_get("indisprimary").unwrap_or(false),
                 }
             })
             .collect();
 
-        Ok(TableSchema { table: t.clone(), columns, indexes, foreign_keys: Vec::new() })
+        Ok(TableSchema {
+            table: t.clone(),
+            columns,
+            indexes,
+            foreign_keys: Vec::new(),
+        })
     }
 
     async fn table_ddl(&self, t: &TableRef) -> Result<String> {

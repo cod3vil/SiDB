@@ -107,12 +107,19 @@ fn save_configs(list: &[ConnConfig]) -> Result<()> {
 
 /// 保存（新增或更新）一条连接：明文密码写钥匙串后丢弃，配置只留引用。
 pub fn save_connection(cred: &CredentialService, input: ConnConfigInput) -> Result<ConnConfig> {
-    let id = input.id.clone().unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+    let id = input
+        .id
+        .clone()
+        .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
 
     let mut list = load_configs();
     // 编辑既有连接时，前端留空密码表示「保持不变」：保留已存的钥匙串凭证与标志，
     // 避免每次编辑都要重填密码。
-    let prior_has_password = list.iter().find(|c| c.id == id).map(|c| c.has_password).unwrap_or(false);
+    let prior_has_password = list
+        .iter()
+        .find(|c| c.id == id)
+        .map(|c| c.has_password)
+        .unwrap_or(false);
 
     // 凭证入钥匙串（仅在本次提供了明文时覆盖）。
     if let Some(pw) = &input.password {

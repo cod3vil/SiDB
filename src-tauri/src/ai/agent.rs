@@ -53,7 +53,11 @@ pub async fn run_turn(
         };
         let cols = crate::ai::context::table_columns_brief(conns, conn_id, &t).await;
         if !cols.is_empty() {
-            brief = if brief.is_empty() { cols } else { format!("{cols}\n{brief}") };
+            brief = if brief.is_empty() {
+                cols
+            } else {
+                format!("{cols}\n{brief}")
+            };
         }
     }
     let system = build_system(
@@ -88,7 +92,11 @@ pub async fn run_turn(
 
         let calls = resp.tool_uses();
         if calls.is_empty() {
-            return Ok(TurnResult { reply: resp.text(), steps, proposals: out_proposals });
+            return Ok(TurnResult {
+                reply: resp.text(),
+                steps,
+                proposals: out_proposals,
+            });
         }
 
         // 逐个执行工具，结果作为一条 user 消息（多个 tool_result 块）回灌。
@@ -105,7 +113,10 @@ pub async fn run_turn(
                 is_error: outcome.is_error,
             });
         }
-        messages.push(Msg { role: "user".into(), content: results });
+        messages.push(Msg {
+            role: "user".into(),
+            content: results,
+        });
     }
 
     // 轮数用尽仍未收敛：返回已有步骤 + 提示。
@@ -116,7 +127,12 @@ pub async fn run_turn(
     })
 }
 
-fn build_system(brief: &str, database: Option<&str>, schema: Option<&str>, table: Option<&str>) -> String {
+fn build_system(
+    brief: &str,
+    database: Option<&str>,
+    schema: Option<&str>,
+    table: Option<&str>,
+) -> String {
     let mut s = String::from(
         "你是内嵌在数据库客户端里的中文 AI 助手。你可以使用工具探查并查询当前连接的数据库。\n\
         规则：\n\
@@ -161,7 +177,12 @@ mod tests {
     #[async_trait]
     impl AiProvider for ScriptedProvider {
         async fn chat(&self, _req: ChatRequest) -> Result<ChatResponse, AppError> {
-            Ok(self.steps.lock().unwrap().pop_front().expect("scripted step"))
+            Ok(self
+                .steps
+                .lock()
+                .unwrap()
+                .pop_front()
+                .expect("scripted step"))
         }
         async fn test(&self) -> Result<(), AppError> {
             Ok(())
@@ -181,10 +202,14 @@ mod tests {
             stop_reason: "tool_use".into(),
         });
         q.push_back(ChatResponse {
-            content: vec![ContentBlock::Text { text: "已生成提案，请确认。".into() }],
+            content: vec![ContentBlock::Text {
+                text: "已生成提案，请确认。".into(),
+            }],
             stop_reason: "end_turn".into(),
         });
-        let provider = ScriptedProvider { steps: Mutex::new(q) };
+        let provider = ScriptedProvider {
+            steps: Mutex::new(q),
+        };
         let conns = ConnectionManager::new();
         let proposals = ProposalStore::new();
 

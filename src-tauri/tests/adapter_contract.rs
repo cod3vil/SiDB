@@ -29,14 +29,22 @@ async fn sqlite_adapter() -> (Box<dyn DbAdapter>, tempfile::NamedTempFile) {
 }
 
 fn tref(name: &str) -> TableRef {
-    TableRef { database: None, schema: None, name: name.into() }
+    TableRef {
+        database: None,
+        schema: None,
+        name: name.into(),
+    }
 }
 
 async fn setup_tables(a: &dyn DbAdapter) {
     let qid = "setup";
-    a.execute(qid, "CREATE TABLE t_pk (id INTEGER PRIMARY KEY, name TEXT NOT NULL)", &[])
-        .await
-        .unwrap();
+    a.execute(
+        qid,
+        "CREATE TABLE t_pk (id INTEGER PRIMARY KEY, name TEXT NOT NULL)",
+        &[],
+    )
+    .await
+    .unwrap();
     a.execute(qid, "CREATE TABLE t_no_pk (a INTEGER, b TEXT)", &[])
         .await
         .unwrap();
@@ -81,7 +89,10 @@ async fn insert_query_roundtrip() {
         .unwrap();
     assert_eq!(res.affected_rows, 1);
 
-    let rows = a.query("q", "SELECT id, name FROM t_pk", &[]).await.unwrap();
+    let rows = a
+        .query("q", "SELECT id, name FROM t_pk", &[])
+        .await
+        .unwrap();
     assert_eq!(rows.rows.len(), 1);
     assert_eq!(rows.rows[0][0], Value::Int(1));
     assert_eq!(rows.rows[0][1], Value::Text("alice".into()));
@@ -91,9 +102,13 @@ async fn insert_query_roundtrip() {
 async fn null_distinct_from_empty_string() {
     let (a, _f) = sqlite_adapter().await;
     setup_tables(&*a).await;
-    a.execute("q", "INSERT INTO t_no_pk (a, b) VALUES (?, ?)", &[Value::Null, Value::Text("".into())])
-        .await
-        .unwrap();
+    a.execute(
+        "q",
+        "INSERT INTO t_no_pk (a, b) VALUES (?, ?)",
+        &[Value::Null, Value::Text("".into())],
+    )
+    .await
+    .unwrap();
     let rows = a.query("q", "SELECT a, b FROM t_no_pk", &[]).await.unwrap();
     assert_eq!(rows.rows[0][0], Value::Null);
     assert_eq!(rows.rows[0][1], Value::Text("".into()));
@@ -140,12 +155,21 @@ async fn transaction_commits_all_or_nothing() {
     let (a, _f) = sqlite_adapter().await;
     setup_tables(&*a).await;
     let stmts = vec![
-        ("INSERT INTO t_pk (id, name) VALUES (?, ?)".to_string(), vec![Value::Int(1), Value::Text("a".into())]),
-        ("INSERT INTO t_pk (id, name) VALUES (?, ?)".to_string(), vec![Value::Int(2), Value::Text("b".into())]),
+        (
+            "INSERT INTO t_pk (id, name) VALUES (?, ?)".to_string(),
+            vec![Value::Int(1), Value::Text("a".into())],
+        ),
+        (
+            "INSERT INTO t_pk (id, name) VALUES (?, ?)".to_string(),
+            vec![Value::Int(2), Value::Text("b".into())],
+        ),
     ];
     let res = a.execute_in_transaction(stmts).await.unwrap();
     assert_eq!(res.len(), 2);
-    let rows = a.query("q", "SELECT COUNT(*) FROM t_pk", &[]).await.unwrap();
+    let rows = a
+        .query("q", "SELECT COUNT(*) FROM t_pk", &[])
+        .await
+        .unwrap();
     assert_eq!(rows.rows[0][0], Value::Int(2));
 }
 
@@ -154,12 +178,21 @@ async fn transaction_rolls_back_on_error() {
     let (a, _f) = sqlite_adapter().await;
     setup_tables(&*a).await;
     let stmts = vec![
-        ("INSERT INTO t_pk (id, name) VALUES (?, ?)".to_string(), vec![Value::Int(1), Value::Text("a".into())]),
+        (
+            "INSERT INTO t_pk (id, name) VALUES (?, ?)".to_string(),
+            vec![Value::Int(1), Value::Text("a".into())],
+        ),
         // 主键冲突 → 整个事务回滚
-        ("INSERT INTO t_pk (id, name) VALUES (?, ?)".to_string(), vec![Value::Int(1), Value::Text("dup".into())]),
+        (
+            "INSERT INTO t_pk (id, name) VALUES (?, ?)".to_string(),
+            vec![Value::Int(1), Value::Text("dup".into())],
+        ),
     ];
     let err = a.execute_in_transaction(stmts).await;
     assert!(err.is_err());
-    let rows = a.query("q", "SELECT COUNT(*) FROM t_pk", &[]).await.unwrap();
+    let rows = a
+        .query("q", "SELECT COUNT(*) FROM t_pk", &[])
+        .await
+        .unwrap();
     assert_eq!(rows.rows[0][0], Value::Int(0), "事务应整体回滚");
 }

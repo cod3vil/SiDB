@@ -121,8 +121,8 @@ impl AiProvider for AnthropicProvider {
             body["system"] = serde_json::Value::String(req.system);
         }
         if !req.tools.is_empty() {
-            body["tools"] = serde_json::to_value(&req.tools)
-                .map_err(|e| AppError::Internal(e.to_string()))?;
+            body["tools"] =
+                serde_json::to_value(&req.tools).map_err(|e| AppError::Internal(e.to_string()))?;
         }
         let resp = reqwest::Client::new()
             .post("https://api.anthropic.com/v1/messages")
@@ -142,8 +142,14 @@ impl AiProvider for AnthropicProvider {
             .map_err(|e| AppError::Network(e.to_string()))?;
         let content: Vec<ContentBlock> = serde_json::from_value(json["content"].clone())
             .map_err(|e| AppError::Internal(format!("decode content: {e}")))?;
-        let stop_reason = json["stop_reason"].as_str().unwrap_or("end_turn").to_string();
-        Ok(ChatResponse { content, stop_reason })
+        let stop_reason = json["stop_reason"]
+            .as_str()
+            .unwrap_or("end_turn")
+            .to_string();
+        Ok(ChatResponse {
+            content,
+            stop_reason,
+        })
     }
 
     async fn test(&self) -> Result<(), AppError> {
@@ -236,7 +242,9 @@ impl AiProvider for OpenAiCompatProvider {
         let mut content = Vec::new();
         if let Some(text) = msg["content"].as_str() {
             if !text.is_empty() {
-                content.push(ContentBlock::Text { text: text.to_string() });
+                content.push(ContentBlock::Text {
+                    text: text.to_string(),
+                });
             }
         }
         if let Some(calls) = msg["tool_calls"].as_array() {
@@ -244,13 +252,22 @@ impl AiProvider for OpenAiCompatProvider {
                 let args = c["function"]["arguments"].as_str().unwrap_or("{}");
                 content.push(ContentBlock::ToolUse {
                     id: c["id"].as_str().unwrap_or_default().to_string(),
-                    name: c["function"]["name"].as_str().unwrap_or_default().to_string(),
+                    name: c["function"]["name"]
+                        .as_str()
+                        .unwrap_or_default()
+                        .to_string(),
                     input: serde_json::from_str(args).unwrap_or_else(|_| serde_json::json!({})),
                 });
             }
         }
-        let stop_reason = choice["finish_reason"].as_str().unwrap_or("stop").to_string();
-        Ok(ChatResponse { content, stop_reason })
+        let stop_reason = choice["finish_reason"]
+            .as_str()
+            .unwrap_or("stop")
+            .to_string();
+        Ok(ChatResponse {
+            content,
+            stop_reason,
+        })
     }
 
     async fn test(&self) -> Result<(), AppError> {
@@ -297,9 +314,11 @@ fn push_openai_messages(out: &mut Vec<serde_json::Value>, m: &Msg) {
                 "type": "function",
                 "function": { "name": name, "arguments": input.to_string() },
             })),
-            ContentBlock::ToolResult { tool_use_id, content, .. } => {
-                tool_results.push((tool_use_id.clone(), content.clone()))
-            }
+            ContentBlock::ToolResult {
+                tool_use_id,
+                content,
+                ..
+            } => tool_results.push((tool_use_id.clone(), content.clone())),
         }
     }
 
@@ -383,7 +402,10 @@ mod tests {
         // 第二跳：回灌 tool_result，期望最终文本（验证 tool_result→role:tool 映射被接受）。
         let convo = vec![
             Msg::user_text("列出 app 库里的表"),
-            Msg { role: "assistant".into(), content: r1.content.clone() },
+            Msg {
+                role: "assistant".into(),
+                content: r1.content.clone(),
+            },
             Msg {
                 role: "user".into(),
                 content: vec![ContentBlock::ToolResult {
@@ -394,10 +416,19 @@ mod tests {
             },
         ];
         let r2 = p
-            .chat(ChatRequest { system: String::new(), messages: convo, tools, max_tokens: 256 })
+            .chat(ChatRequest {
+                system: String::new(),
+                messages: convo,
+                tools,
+                max_tokens: 256,
+            })
             .await
             .expect("chat 2");
-        assert!(!r2.text().is_empty(), "expected final text, got {:?}", r2.content);
+        assert!(
+            !r2.text().is_empty(),
+            "expected final text, got {:?}",
+            r2.content
+        );
         println!("HOP2 final reply: {}", r2.text());
     }
 }

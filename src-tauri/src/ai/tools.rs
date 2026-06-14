@@ -131,14 +131,25 @@ pub async fn execute(
     match out {
         Ok((content, summary)) => {
             audit::record(conn_id, name, sql_of(input), &summary);
-            ToolOutcome { content, is_error: false, step: ToolStep { tool: name.into(), summary }, proposal: None }
+            ToolOutcome {
+                content,
+                is_error: false,
+                step: ToolStep {
+                    tool: name.into(),
+                    summary,
+                },
+                proposal: None,
+            }
         }
         Err(msg) => {
             audit::record(conn_id, name, sql_of(input), &format!("error: {msg}"));
             ToolOutcome {
                 content: format!("error: {msg}"),
                 is_error: true,
-                step: ToolStep { tool: name.into(), summary: format!("失败：{msg}") },
+                step: ToolStep {
+                    tool: name.into(),
+                    summary: format!("失败：{msg}"),
+                },
                 proposal: None,
             }
         }
@@ -150,7 +161,10 @@ fn sql_of(input: &serde_json::Value) -> &str {
 }
 
 fn str_field<'a>(input: &'a serde_json::Value, key: &str) -> Option<&'a str> {
-    input.get(key).and_then(|v| v.as_str()).filter(|s| !s.is_empty())
+    input
+        .get(key)
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
 }
 
 async fn list_tables(
@@ -168,7 +182,10 @@ async fn list_tables(
     let schema = str_field(input, "schema")
         .map(String::from)
         .or_else(|| ctx.schema.clone());
-    let tables = a.list_tables(&db, schema.as_deref()).await.map_err(|e| e.to_string())?;
+    let tables = a
+        .list_tables(&db, schema.as_deref())
+        .await
+        .map_err(|e| e.to_string())?;
     let names: Vec<&str> = tables.iter().map(|t| t.name.as_str()).collect();
     let content = serde_json::json!({ "tables": names }).to_string();
     Ok((cap(content), format!("列出 {} 张表/视图", tables.len())))
@@ -184,8 +201,12 @@ async fn get_schema(
     let s = conns.get(conn_id).ok_or("not connected")?;
     let a = s.adapter.lock().await;
     let t = crate::models::TableRef {
-        database: str_field(input, "database").map(String::from).or_else(|| ctx.database.clone()),
-        schema: str_field(input, "schema").map(String::from).or_else(|| ctx.schema.clone()),
+        database: str_field(input, "database")
+            .map(String::from)
+            .or_else(|| ctx.database.clone()),
+        schema: str_field(input, "schema")
+            .map(String::from)
+            .or_else(|| ctx.schema.clone()),
         name: name.to_string(),
     };
     let schema = a.table_schema(&t).await.map_err(|e| e.to_string())?;
@@ -202,7 +223,10 @@ async fn get_schema(
         })
         .collect();
     let content = serde_json::json!({ "table": name, "columns": cols }).to_string();
-    Ok((cap(content), format!("读取 {} 结构 · {} 列", name, schema.columns.len())))
+    Ok((
+        cap(content),
+        format!("读取 {} 结构 · {} 列", name, schema.columns.len()),
+    ))
 }
 
 async fn run_read_query(
@@ -252,7 +276,10 @@ fn propose_write(
         return ToolOutcome {
             content: "error: missing 'sql'".into(),
             is_error: true,
-            step: ToolStep { tool: "propose_write".into(), summary: "失败：缺少 sql".into() },
+            step: ToolStep {
+                tool: "propose_write".into(),
+                summary: "失败：缺少 sql".into(),
+            },
             proposal: None,
         };
     };

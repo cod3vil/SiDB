@@ -24,7 +24,10 @@ pub enum Value {
     Decimal(String),
     Text(String),
     /// 大对象不全量进前端：只携带长度 + 十六进制预览。
-    Bytes { len: usize, preview_hex: String },
+    Bytes {
+        len: usize,
+        preview_hex: String,
+    },
     Json(serde_json::Value),
     /// ISO 8601，原样字符串，一期不做时区转换。
     Date(String),
@@ -121,8 +124,12 @@ pub struct ExecResult {
 #[serde(tag = "kind")]
 pub enum Editability {
     /// 主键 / 唯一非空键 / rowid 列名。
-    Editable { row_id_columns: Vec<String> },
-    ReadOnly { reason: String },
+    Editable {
+        row_id_columns: Vec<String>,
+    },
+    ReadOnly {
+        reason: String,
+    },
 }
 
 // ---------------------------------------------------------------------------
@@ -396,10 +403,7 @@ mod tests {
     fn value_kind_matches_variant() {
         assert_eq!(Value::Null.kind(), "Null");
         assert_eq!(Value::Json(serde_json::json!({"a":1})).kind(), "Json");
-        assert_eq!(
-            Value::Array(vec![Value::Int(1)]).kind(),
-            "Array"
-        );
+        assert_eq!(Value::Array(vec![Value::Int(1)]).kind(), "Array");
     }
 
     #[test]
@@ -443,7 +447,10 @@ mod tests {
 
     #[test]
     fn db_kind_lowercase_serde() {
-        assert_eq!(serde_json::to_string(&DbKind::Postgres).unwrap(), r#""postgres""#);
+        assert_eq!(
+            serde_json::to_string(&DbKind::Postgres).unwrap(),
+            r#""postgres""#
+        );
         let k: DbKind = serde_json::from_str(r#""sqlite""#).unwrap();
         assert_eq!(k, DbKind::Sqlite);
     }
