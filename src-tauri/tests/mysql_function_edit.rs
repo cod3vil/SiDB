@@ -145,3 +145,46 @@ async fn mysql_function_edit_roundtrip() {
 
     println!("✅ MySQL 函数编辑保存验证通过：6 → 105，测试函数已清理");
 }
+
+/// 验证「新增 MySQL 函数」路径：adapter.create_function 整体执行含 BEGIN…END 的定义
+/// （此前走 runSql → sqlsplit 切分 + 预处理 execute 会失败）。
+#[tokio::test]
+#[ignore = "需要本地 MySQL，手动运行"]
+async fn mysql_function_create() {
+    const NAME: &str = "sidb_verify_create";
+    let raw = raw_pool().await;
+    raw.execute(format!("DROP FUNCTION IF EXISTS {NAME}").as_str())
+        .await
+        .expect("pre-clean");
+
+    let a = adapter().await;
+    let routine = RoutineRef {
+        database: Some(db()),
+        schema: None,
+        name: NAME.to_string(),
+        kind: RoutineKind::Function,
+        id: None,
+    };
+
+    // 函数体含 BEGIN…END（内部分号）—— 新增函数编辑器里的典型形态。
+    let definition = format!(
+        "CREATE FUNCTION {NAME}(x INT) RETURNS INT DETERMINISTIC \
+         BEGIN DECLARE r INT; SET r = x * 2; RETURN r; END"
+    );
+    a.create_function(&definition).await.expect("create_function");
+
+    // 创建成功且可读、可调用：create(21) -> 42。
+    let def = a.function_ddl(&routine).await.expect("function_ddl");
+    assert!(def.contains(NAME), "定义应含函数名：{def}");
+    let v: i64 = sqlx::query_scalar(&format!("SELECT {NAME}(21)"))
+        .fetch_one(&raw)
+        .await
+        .unwrap();
+    assert_eq!(v, 42, "create(21) 应为 42");
+
+    raw.execute(format!("DROP FUNCTION IF EXISTS {NAME}").as_str())
+        .await
+        .expect("teardown");
+
+    println!("✅ MySQL 新增函数验证通过：create(21) → 42，已清理");
+}

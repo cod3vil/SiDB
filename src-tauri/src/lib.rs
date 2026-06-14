@@ -63,6 +63,7 @@ pub fn run() {
             commands::get_table_schema,
             commands::get_table_ddl,
             commands::get_function_ddl,
+            commands::create_function,
             commands::replace_function,
             commands::open_table_data,
             commands::run_sql,

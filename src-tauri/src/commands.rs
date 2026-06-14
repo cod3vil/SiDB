@@ -300,6 +300,20 @@ pub async fn get_function_ddl(
 }
 
 #[tauri::command]
+pub async fn create_function(
+    state: State<'_, AppState>,
+    conn_id: String,
+    database: Option<String>,
+    definition: String,
+) -> R<()> {
+    let s = session(&state, &conn_id)?;
+    let mut a = s.adapter.lock().await;
+    // 确保在编辑器选定的库中创建（仅 MySQL 等会话切换方言生效；PG/SQLite 无操作）。
+    a.use_database(database).await?;
+    a.create_function(&definition).await
+}
+
+#[tauri::command]
 pub async fn replace_function(
     state: State<'_, AppState>,
     conn_id: String,
@@ -307,7 +321,9 @@ pub async fn replace_function(
     definition: String,
 ) -> R<()> {
     let s = session(&state, &conn_id)?;
-    let a = s.adapter.lock().await;
+    let mut a = s.adapter.lock().await;
+    // 切到函数所在库，保证 CREATE（定义内函数名未带库前缀）落在正确的库（MySQL）。
+    a.use_database(routine.database.clone()).await?;
     a.replace_function(&routine, &definition).await
 }
 

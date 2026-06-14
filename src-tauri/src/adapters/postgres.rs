@@ -396,15 +396,19 @@ impl DbAdapter for PostgresAdapter {
         row.try_get("def").map_err(sql_err)
     }
 
-    async fn replace_function(&self, _r: &RoutineRef, definition: &str) -> Result<()> {
-        // pg_get_functiondef 输出为 CREATE OR REPLACE FUNCTION，整体执行即原地更新。
-        // 用简单查询协议（非预处理），稳妥处理含 $$ 体的 DDL。
+    async fn create_function(&self, definition: &str) -> Result<()> {
+        // 整体执行，用简单查询协议（非预处理），稳妥处理含 $$ 体的 DDL。
         use sqlx::Executor;
         self.pool()?
             .execute(definition)
             .await
             .map_err(AppError::from)?;
         Ok(())
+    }
+
+    async fn replace_function(&self, _r: &RoutineRef, definition: &str) -> Result<()> {
+        // pg_get_functiondef 输出为 CREATE OR REPLACE FUNCTION，整体执行即原地更新。
+        self.create_function(definition).await
     }
 
     async fn table_schema(&self, t: &TableRef) -> Result<TableSchema> {

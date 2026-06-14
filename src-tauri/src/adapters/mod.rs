@@ -100,6 +100,14 @@ pub trait DbAdapter: Send + Sync {
             "function definition not supported for this database".into(),
         ))
     }
+    /// 创建函数 / 存储过程。`definition` 是完整的 CREATE 语句（可能含 `BEGIN…END` 等
+    /// 内部分号，整体执行不得切分；MySQL 预处理协议不支持此类 DDL，须走简单查询协议）。
+    /// 无该概念的方言默认报错。
+    async fn create_function(&self, _definition: &str) -> Result<()> {
+        Err(AppError::NotEditable(
+            "function creation not supported for this database".into(),
+        ))
+    }
     /// 替换（更新）已存在的函数 / 存储过程。`definition` 是完整的 CREATE 语句
     /// （[`function_ddl`](Self::function_ddl) 的输出，可能含内部分号，整体执行不得切分）。
     /// PG 经 `CREATE OR REPLACE` 原地更新；MySQL 等无该语法的方言先删后建。

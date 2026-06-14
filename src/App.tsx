@@ -492,9 +492,16 @@ export default function App() {
       toast.success(t("editor.functionSaved"));
       return;
     }
-    // 新增函数：执行脚本创建。
-    const ok = await runSql();
-    if (!ok) return;
+    // 新增函数：整体执行定义创建（不切分、简单查询协议，兼容 MySQL routine DDL）。
+    const db = connected[tab.connId]?.supports_use_database ? tab.db : null;
+    try {
+      await ipc.createFunction(tab.connId, db, tab.sql);
+    } catch (e) {
+      updateTab(tab.id, { error: errorMessage(e) });
+      toast.error(errorMessage(e));
+      return;
+    }
+    updateTab(tab.id, { error: null, results: [], activeResult: 0 });
     bumpTree();
     toast.success(t("editor.functionSaved"));
   };

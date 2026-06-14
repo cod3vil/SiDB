@@ -49,6 +49,8 @@ export const ipc = {
     invoke<string>("get_table_ddl", { connId, table }),
   getFunctionDdl: (connId: string, routine: RoutineRef) =>
     invoke<string>("get_function_ddl", { connId, routine }),
+  createFunction: (connId: string, database: string | null, definition: string) =>
+    invoke<void>("create_function", { connId, database, definition }),
   replaceFunction: (connId: string, routine: RoutineRef, definition: string) =>
     invoke<void>("replace_function", { connId, routine, definition }),
 
