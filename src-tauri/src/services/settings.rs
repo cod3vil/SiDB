@@ -41,7 +41,14 @@ pub struct Settings {
     pub default_page_size: u64,
     pub editor_font_size: u32,
     pub auto_uppercase_keywords: bool,
+    /// 启动时自动检查更新。
+    #[serde(default = "default_true")]
+    pub auto_check_update: bool,
     pub ai: AiSettings,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 impl Default for Settings {
@@ -52,6 +59,7 @@ impl Default for Settings {
             default_page_size: 1000,
             editor_font_size: 13,
             auto_uppercase_keywords: false,
+            auto_check_update: true,
             ai: AiSettings::default(),
         }
     }

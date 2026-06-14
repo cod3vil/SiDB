@@ -217,6 +217,7 @@ export interface Settings {
   default_page_size: number;
   editor_font_size: number;
   auto_uppercase_keywords: boolean;
+  auto_check_update: boolean;
   ai: {
     provider: string;
     model: string;

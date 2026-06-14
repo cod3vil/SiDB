@@ -55,6 +55,11 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # 自动更新签名（在仓库 Settings → Secrets 配置）：
+          #   TAURI_SIGNING_PRIVATE_KEY          ~/.tauri/sidb.key 的内容
+          #   TAURI_SIGNING_PRIVATE_KEY_PASSWORD 私钥密码（无则留空）
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           tagName: ${{ github.ref_name }}
           releaseName: "SiDB ${{ github.ref_name }}"

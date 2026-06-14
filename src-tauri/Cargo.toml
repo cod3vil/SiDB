@@ -65,6 +65,10 @@ dirs = "5"
 # 导出 XLSX
 rust_xlsxwriter = "0.79"
 
+# 在线自动更新
+tauri-plugin-updater = "2"
+tauri-plugin-process = "2"
+
 # AI HTTP (one-shot test connectivity in phase 1; full use in phase 2)
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 

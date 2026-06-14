@@ -35,6 +35,7 @@ import { useExports } from "@/stores/export";
 import { toast } from "@/stores/toast";
 import { save as saveFileDialog } from "@tauri-apps/plugin-dialog";
 import { listen } from "@tauri-apps/api/event";
+import { checkUpdate } from "@/lib/update";
 import { errorMessage } from "@/lib/error";
 import { LANGUAGES, setLanguage } from "@/i18n";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -686,6 +687,22 @@ export default function App() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  // 启动时按设置自动检查更新：发现新版本仅提示，由用户去设置里安装。
+  useEffect(() => {
+    ipc
+      .getSettings()
+      .then((s) => {
+        if (!s.auto_check_update) return;
+        checkUpdate()
+          .then((u) => {
+            if (u) toast.info(t("settings.newVersionToast", { v: u.version }));
+          })
+          .catch(() => undefined);
+      })
+      .catch(() => undefined);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // 导出进度事件 → 进度卡片 + 终态提示。
