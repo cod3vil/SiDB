@@ -129,7 +129,7 @@ export function SettingsDialog({ onClose }: Props) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
       <div
-        className="flex max-h-[80vh] w-[480px] flex-col overflow-hidden rounded-xl border border-border bg-card shadow-2xl"
+        className="flex h-[460px] w-[480px] flex-col overflow-hidden rounded-xl border border-border bg-card shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="px-5 py-3 border-b border-border">
