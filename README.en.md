@@ -5,7 +5,7 @@
 # Author's Note
 This is a fully AI-generated product. Apart from this note, I did not write a single line of code or documentation — not even the logo icon. It is a demonstration of AI's ability to build a complete product end to end.
 Thanks to the following AIs:
-- Claude Code
+- Claude
 - ChatGPT
 - DeepSeek
 
@@ -48,8 +48,13 @@ Supports **MySQL · PostgreSQL · SQLite**
 - Visual dialogs to create database / table / view; edit table structure (generates `ALTER`); view table DDL
 - Functions / stored procedures: view definition, create, and **edit in place** (PG via `CREATE OR REPLACE`, MySQL via `DROP` + `CREATE`)
 
+### Data export
+- Right-click a table / database: **dump structure** or **dump structure + data** → `.sql`
+- Export button under the result grid: format **CSV / XLSX / SQL**, scope **all / current page / custom count**
+- **Background task + progress overlay + cancellable**; streams page-by-page to disk (no full load into memory) and doesn't block other queries on the same connection
+
 ### AI assistant
-- Natural-language chat side panel with multiple conversations + a **history drawer**
+- Natural-language chat side panel with multiple conversations + a **history drawer** (clearable)
 - Tool-loop agent: can browse the schema and run read-only queries (forced `LIMIT` and timeout)
 - **Write operations are only produced as proposals and require explicit user confirmation before execution**; every AI-issued SQL is written to an audit log
 - Provider: Anthropic / OpenAI-compatible / custom endpoint; the API key goes into the keychain
