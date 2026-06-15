@@ -194,6 +194,29 @@ export default function App() {
     document.body.style.userSelect = "none";
   };
 
+  // 左侧连接栏宽度（可拖右边缘）。
+  const [leftWidth, setLeftWidth] = useState(256);
+  const startDragLeftWidth = (e: React.MouseEvent) => {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startW = leftWidth;
+    const onMove = (ev: MouseEvent) => {
+      // 手柄在栏右侧：向右拖（clientX 变大）变宽。
+      const next = Math.max(180, Math.min(startW + (ev.clientX - startX), Math.round(window.innerWidth * 0.6)));
+      setLeftWidth(next);
+    };
+    const onUp = () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+  };
+
   // AI 侧栏宽度（可拖左边缘）。
   const [aiWidth, setAiWidth] = useState(384);
   const startDragAiWidth = (e: React.MouseEvent) => {
@@ -885,7 +908,7 @@ export default function App() {
       </header>
 
       <div className="flex min-h-0 flex-1">
-        <aside className="flex w-64 shrink-0 flex-col border-r border-border bg-card/40">
+        <aside style={{ width: leftWidth }} className="flex shrink-0 flex-col border-r border-border bg-card/40">
           <ConnectionTree
             onOpenTable={openTable}
             onShowDdl={showDdl}
@@ -899,6 +922,11 @@ export default function App() {
             onEditConnection={(c) => setDialog({ cfg: c })}
           />
         </aside>
+
+        <div
+          onMouseDown={startDragLeftWidth}
+          className="group w-1 shrink-0 cursor-col-resize bg-border transition-colors hover:bg-primary/50"
+        />
 
         <main className="flex min-w-0 flex-1 flex-col">
           <TabBar
