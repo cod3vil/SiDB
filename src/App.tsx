@@ -858,7 +858,6 @@ export default function App() {
       >
         <div className="flex items-center gap-2">
           <img src="/logo.png" alt="" className="h-7 w-7 rounded-md" />
-          <span className="text-xs font-semibold tracking-wide text-foreground">{t("app.title")}</span>
           <span className="rounded bg-muted px-1.5 py-px text-[10px] font-medium text-muted-foreground">
             v{version}
           </span>
