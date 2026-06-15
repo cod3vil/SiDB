@@ -103,6 +103,9 @@ pub struct ResultSet {
     pub page: PageInfo,
     pub elapsed_ms: u64,
     pub editable: Editability,
+    /// 可编辑结果对应的表（自定义「单表 SELECT *」时由后端解析得到；表浏览为 None，前端已知表）。
+    #[serde(default)]
+    pub editable_table: Option<TableRef>,
 }
 
 /// 适配器返回的原始结果集（未做分页包装/可编辑性判定前的中间产物）。

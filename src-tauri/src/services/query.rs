@@ -122,14 +122,60 @@ pub async fn count_table(
     }
 }
 
+/// 识别「简单单表 `SELECT * FROM 表`」（可带 WHERE/ORDER BY/LIMIT），用于让其结果可编辑。
+/// 保守起见：必须 `SELECT *`、单表、无 join/逗号/子查询/聚合/别名；否则返回 None（按只读处理）。
+pub fn simple_select_table(sql: &str, caps: &DbCapabilities) -> Option<TableRef> {
+    let s = sql.trim().trim_end_matches(';').trim();
+    let toks: Vec<&str> = s.split_whitespace().collect();
+    if toks.len() < 4 {
+        return None;
+    }
+    if !toks[0].eq_ignore_ascii_case("select")
+        || toks[1] != "*"
+        || !toks[2].eq_ignore_ascii_case("from")
+    {
+        return None;
+    }
+    // 表标识符后若还有内容，只允许 where / order / limit 起头。
+    if let Some(next) = toks.get(4) {
+        let next = next.to_ascii_lowercase();
+        if !matches!(next.as_str(), "where" | "order" | "limit") {
+            return None;
+        }
+    }
+    let ident = toks[3];
+    if ident.chars().any(|c| matches!(c, ',' | '(' | ')' | ';')) {
+        return None;
+    }
+    let parts: Vec<String> = ident
+        .split('.')
+        .map(|p| p.trim_matches(|c| c == '`' || c == '"').to_string())
+        .collect();
+    if parts.iter().any(|p| p.is_empty()) {
+        return None;
+    }
+    let (database, schema, name) = match parts.as_slice() {
+        [name] => (None, None, name.clone()),
+        [a, b] if caps.supports_schemas => (None, Some(a.clone()), b.clone()),
+        [a, b] => (Some(a.clone()), None, b.clone()),
+        [a, b, c] => (Some(a.clone()), Some(b.clone()), c.clone()),
+        _ => return None,
+    };
+    Some(TableRef {
+        database,
+        schema,
+        name,
+    })
+}
+
 /// 执行一段脚本（可能多语句），返回每条语句的结果。
-///
-/// `query_id_prefix` 用于取消登记（每条语句拼 `:idx`）。
+/// `query_id_prefix` 用于取消登记（每条语句拼 `:idx`）。`ctx_database` 为编辑器当前库。
 pub async fn run_script(
     adapter: &dyn DbAdapter,
     query_id_prefix: &str,
     script: &str,
     page: Page,
+    ctx_database: Option<&str>,
     read_timeout: Option<Duration>,
     write_timeout: Option<Duration>,
 ) -> Result<Vec<RunOutcome>> {
@@ -143,15 +189,30 @@ pub async fn run_script(
             let wrapped = wrap_pagination(stmt, page);
             let raw = with_timeout(read_timeout, adapter.query(&qid, &wrapped, &[])).await?;
             let returned = raw.rows.len() as u64;
+            // 简单单表 SELECT *：解析出表并判定可编辑性，让结果可改。
+            let mut editable = Editability::ReadOnly {
+                reason: "custom-query".into(),
+            };
+            let mut editable_table = None;
+            if let Some(mut t) = simple_select_table(stmt, adapter.capabilities()) {
+                if t.database.is_none() {
+                    t.database = ctx_database.map(|s| s.to_string());
+                }
+                if let Ok(ed @ Editability::Editable { .. }) =
+                    crate::services::metadata::editability(adapter, &t).await
+                {
+                    editable = ed;
+                    editable_table = Some(t);
+                }
+            }
             outcomes.push(RunOutcome::Rows(ResultSet {
                 columns: raw.columns,
                 rows: raw.rows,
                 total_hint: None,
                 page: page_info(page, returned),
                 elapsed_ms: started.elapsed().as_millis() as u64,
-                editable: Editability::ReadOnly {
-                    reason: "custom-query".into(),
-                },
+                editable,
+                editable_table,
             }));
         } else {
             let res = with_timeout(write_timeout, adapter.execute(&qid, stmt, &[])).await?;
@@ -264,5 +325,58 @@ mod tests {
         assert!(is_result_producing("WITH"));
         assert!(!is_result_producing("INSERT"));
         assert!(!is_result_producing("UPDATE"));
+    }
+
+    fn pg_caps() -> DbCapabilities {
+        DbCapabilities {
+            supports_schemas: true,
+            quote_char: '"',
+            ..caps()
+        }
+    }
+
+    #[test]
+    fn simple_select_matches() {
+        let c = caps(); // 非 schema 方言（MySQL 类）
+        assert_eq!(
+            simple_select_table("SELECT * FROM users", &c).unwrap().name,
+            "users"
+        );
+        assert_eq!(
+            simple_select_table("select * from users where id=1", &c)
+                .unwrap()
+                .name,
+            "users"
+        );
+        assert_eq!(
+            simple_select_table("SELECT * FROM users ORDER BY id LIMIT 10", &c)
+                .unwrap()
+                .name,
+            "users"
+        );
+        // 库限定（MySQL）：db.tbl
+        let t = simple_select_table("SELECT * FROM kwy.kwy_redpack;", &c).unwrap();
+        assert_eq!(
+            (t.database.as_deref(), t.name.as_str()),
+            (Some("kwy"), "kwy_redpack")
+        );
+        // PG schema 限定：schema.tbl
+        let p = simple_select_table("SELECT * FROM public.users", &pg_caps()).unwrap();
+        assert_eq!(
+            (p.schema.as_deref(), p.name.as_str()),
+            (Some("public"), "users")
+        );
+    }
+
+    #[test]
+    fn simple_select_rejects_complex() {
+        let c = caps();
+        assert!(simple_select_table("SELECT id, name FROM users", &c).is_none()); // 非 *
+        assert!(simple_select_table("SELECT * FROM a JOIN b ON a.id=b.id", &c).is_none()); // join
+        assert!(simple_select_table("SELECT * FROM a, b", &c).is_none()); // 多表
+        assert!(simple_select_table("SELECT * FROM users u", &c).is_none()); // 别名
+        assert!(simple_select_table("SELECT * FROM (SELECT 1) x", &c).is_none()); // 子查询
+        assert!(simple_select_table("SELECT * FROM t GROUP BY x", &c).is_none()); // 聚合
+        assert!(simple_select_table("UPDATE t SET x=1", &c).is_none());
     }
 }

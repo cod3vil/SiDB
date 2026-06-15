@@ -650,7 +650,7 @@ export default function App() {
   // 提交单元格编辑：写库后刷新当前页。失败抛出（让网格保留编辑）。
   const commitEdits = async (cs: ChangeSet) => {
     const tab = activeTab;
-    if (!tab?.connId || !tab.browseTable) return;
+    if (!tab?.connId) return;
     try {
       await ipc.commitChanges(tab.connId, cs);
     } catch (e) {
@@ -658,8 +658,13 @@ export default function App() {
       throw e;
     }
     updateTab(tab.id, { error: null });
-    const rs = await ipc.openTableData(tab.connId, tab.browseTable, tab.page, PAGE_SIZE);
-    updateTab(tab.id, { results: [rowsResult(rs)], activeResult: 0 });
+    if (tab.browseTable) {
+      const rs = await ipc.openTableData(tab.connId, tab.browseTable, tab.page, PAGE_SIZE);
+      updateTab(tab.id, { results: [rowsResult(rs)], activeResult: 0 });
+    } else {
+      // 自定义「单表 SELECT」编辑：重跑当前 SQL 刷新。
+      await runSql();
+    }
   };
 
   // ---- 保存查询 -----------------------------------------------------------
@@ -1044,13 +1049,21 @@ export default function App() {
                   )}
                   <div className="flex min-h-0 flex-1 flex-col">
                     {panel?.kind === "rows" ? (
-                      <ResultGrid
-                        result={panel.result}
-                        onGoto={browseMode ? gotoPage : undefined}
-                        table={browseMode ? activeTab?.browseTable : null}
-                        onCommit={browseMode ? commitEdits : undefined}
-                        onExport={activeTab?.connId ? requestExport : undefined}
-                      />
+                      (() => {
+                        // 表浏览用 browseTable；自定义「单表 SELECT」用后端解析出的 editable_table。
+                        const editTable = browseMode
+                          ? (activeTab?.browseTable ?? null)
+                          : (panel.result.editable_table ?? null);
+                        return (
+                          <ResultGrid
+                            result={panel.result}
+                            onGoto={browseMode ? gotoPage : undefined}
+                            table={editTable}
+                            onCommit={editTable ? commitEdits : undefined}
+                            onExport={activeTab?.connId ? requestExport : undefined}
+                          />
+                        );
+                      })()
                     ) : panel?.kind === "messages" ? (
                       <div className="flex-1 space-y-2 overflow-auto rounded-md border border-border bg-muted/20 p-3 font-mono text-xs leading-relaxed">
                         {panel.items.map((it, i) => (

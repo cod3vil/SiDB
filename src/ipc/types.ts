@@ -47,6 +47,8 @@ export interface ResultSet {
   page: PageInfo;
   elapsed_ms: number;
   editable: Editability;
+  /** 可编辑的自定义「单表 SELECT *」对应的表；表浏览为 null（前端已知表）。 */
+  editable_table?: TableRef | null;
 }
 
 export type RunResult =

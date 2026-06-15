@@ -372,6 +372,7 @@ pub async fn open_table_data(
         page: query::page_info(pg, returned),
         elapsed_ms: started.elapsed().as_millis() as u64,
         editable,
+        editable_table: None,
     })
 }
 
@@ -401,10 +402,19 @@ pub async fn run_sql(
     let s = session(&state, &conn_id)?;
     let mut a = s.adapter.lock().await;
     // 编辑器选定的当前库（仅 MySQL 等支持会话切换的方言生效；其余为无操作）。
+    let ctx_db = database.clone();
     a.use_database(database).await?;
     let pg = Page { page, page_size };
-    let outcomes =
-        query::run_script(&**a, &tab_id, &sql, pg, s.read_timeout, s.write_timeout).await?;
+    let outcomes = query::run_script(
+        &**a,
+        &tab_id,
+        &sql,
+        pg,
+        ctx_db.as_deref(),
+        s.read_timeout,
+        s.write_timeout,
+    )
+    .await?;
     Ok(outcomes
         .into_iter()
         .map(|o| match o {
@@ -644,6 +654,7 @@ pub async fn ai_confirm_write(
         "ai_write",
         &p.sql,
         pg,
+        None,
         s.read_timeout,
         s.write_timeout,
     )
