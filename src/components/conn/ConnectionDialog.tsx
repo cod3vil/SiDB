@@ -24,11 +24,14 @@ import {
 interface Props {
   /** 传入则为编辑模式；否则新建。 */
   initial?: ConnConfig | null;
+  /** 新建时的默认分组（右键组 → 新建连接）。 */
+  initialGroup?: string | null;
   onClose: () => void;
   onSaved: (cfg: ConnConfig) => void;
 }
 
 interface FormState {
+  group: string | null;
   name: string;
   kind: DbKind;
   host: string;
@@ -60,8 +63,9 @@ const KIND_DEFAULTS: Record<DbKind, Partial<FormState>> = {
   sqlite: {},
 };
 
-function initState(initial?: ConnConfig | null): FormState {
+function initState(initial?: ConnConfig | null, initialGroup?: string | null): FormState {
   const base: FormState = {
+    group: initialGroup ?? null,
     name: "",
     kind: "mysql",
     host: "127.0.0.1",
@@ -88,6 +92,7 @@ function initState(initial?: ConnConfig | null): FormState {
   if (!initial) return base;
   return {
     ...base,
+    group: initial.group,
     name: initial.name,
     kind: initial.kind,
     host: initial.host ?? base.host,
@@ -112,9 +117,9 @@ function initState(initial?: ConnConfig | null): FormState {
 
 const KINDS: DbKind[] = ["mysql", "postgres", "sqlite"];
 
-export function ConnectionDialog({ initial, onClose, onSaved }: Props) {
+export function ConnectionDialog({ initial, initialGroup, onClose, onSaved }: Props) {
   const { t } = useTranslation();
-  const [f, setF] = useState<FormState>(() => initState(initial));
+  const [f, setF] = useState<FormState>(() => initState(initial, initialGroup));
   const [testing, setTesting] = useState(false);
   const [saving, setSaving] = useState(false);
   const [tab, setTab] = useState<"general" | "advanced" | "ssh">("general");
@@ -160,6 +165,7 @@ export function ConnectionDialog({ initial, onClose, onSaved }: Props) {
       id: initial?.id,
       name: f.name.trim(),
       kind: f.kind,
+      group: f.group,
       host: isSqlite ? null : f.host.trim(),
       port: isSqlite ? null : port,
       user: isSqlite ? null : f.user.trim() || null,

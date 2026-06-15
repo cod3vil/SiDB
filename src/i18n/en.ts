@@ -11,6 +11,11 @@ export default {
   },
   conn: {
     new: "New Connection",
+    newGroup: "New Group",
+    renameGroup: "Rename Group",
+    deleteGroup: "Delete Group",
+    groupName: "Group name",
+    groupEmpty: "Empty group (right-click to add a connection, or drag one in)",
     newTitle: "New Connection",
     editTitle: "Edit Connection",
     test: "Test",

@@ -137,7 +137,7 @@ export default function App() {
   const [tabs, setTabs] = useState<QueryTab[]>(() => [blankTab(1)]);
   const [activeTabId, setActiveTabId] = useState("tab-1");
 
-  const [dialog, setDialog] = useState<{ cfg: ConnConfig | null } | null>(null);
+  const [dialog, setDialog] = useState<{ cfg: ConnConfig | null; group?: string | null } | null>(null);
   const [dbDialog, setDbDialog] = useState<string | null>(null);
   const [tableDialog, setTableDialog] = useState<{
     connId: string;
@@ -895,7 +895,7 @@ export default function App() {
             onOpenQuery={openSavedQuery}
             onShowFunction={showFunction}
             onExportStructure={exportStructure}
-            onNewConnection={() => setDialog({ cfg: null })}
+            onNewConnection={(group) => setDialog({ cfg: null, group })}
             onEditConnection={(c) => setDialog({ cfg: c })}
           />
         </aside>
@@ -1081,7 +1081,14 @@ export default function App() {
         )}
       </div>
 
-      {dialog && <ConnectionDialog initial={dialog.cfg} onClose={() => setDialog(null)} onSaved={onSaved} />}
+      {dialog && (
+        <ConnectionDialog
+          initial={dialog.cfg}
+          initialGroup={dialog.group}
+          onClose={() => setDialog(null)}
+          onSaved={onSaved}
+        />
+      )}
 
       {settingsOpen && <SettingsDialog onClose={() => setSettingsOpen(false)} />}
 

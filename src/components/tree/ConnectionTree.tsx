@@ -8,7 +8,16 @@
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ipc } from "@/ipc";
-import type { ConnConfig, DbCapabilities, RoutineInfo, RoutineRef, SavedQuery, TableInfo, TableRef } from "@/ipc/types";
+import type {
+  ConnConfig,
+  ConnConfigInput,
+  DbCapabilities,
+  RoutineInfo,
+  RoutineRef,
+  SavedQuery,
+  TableInfo,
+  TableRef,
+} from "@/ipc/types";
 import { useConnections } from "@/stores";
 import { toast } from "@/stores/toast";
 import { errorMessage } from "@/lib/error";
@@ -21,10 +30,60 @@ import {
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 
 /** 复制到剪贴板（webview 安全上下文）。 */
 function copyText(s: string) {
   void navigator.clipboard?.writeText(s).catch(() => undefined);
+}
+
+/** 拖拽连接的 DnD 数据类型。 */
+const CONN_DND = "application/x-sidb-conn";
+
+/** 连接分组名持久化（仅 UI 组织，组名列表存 localStorage；连接归属在后端 group 字段）。 */
+const GROUPS_KEY = "sidb.conn-groups";
+function loadGroupNames(): string[] {
+  try {
+    const raw = localStorage.getItem(GROUPS_KEY);
+    const arr = raw ? JSON.parse(raw) : [];
+    return Array.isArray(arr) ? arr.filter((x): x is string => typeof x === "string") : [];
+  } catch {
+    return [];
+  }
+}
+function saveGroupNames(groups: string[]) {
+  try {
+    localStorage.setItem(GROUPS_KEY, JSON.stringify(groups));
+  } catch {
+    /* ignore */
+  }
+}
+
+/** 由既有连接构造保存入参：仅改 group，其余原样、凭据留空（后端按「留空保持不变」处理）。 */
+function configToInput(c: ConnConfig, group: string | null): ConnConfigInput {
+  return {
+    id: c.id,
+    name: c.name,
+    kind: c.kind,
+    group,
+    host: c.host,
+    port: c.port,
+    user: c.user,
+    password: null,
+    database: c.database,
+    schema: c.schema,
+    ssl_mode: c.ssl_mode,
+    connect_timeout_secs: c.connect_timeout_secs,
+    keepalive_secs: c.keepalive_secs,
+    read_timeout_secs: c.read_timeout_secs,
+    write_timeout_secs: c.write_timeout_secs,
+    sqlite_path: c.sqlite_path,
+    ssh: c.ssh,
+    ssh_password: null,
+    ssh_passphrase: null,
+  };
 }
 
 export type NewObjectType = "database" | "table" | "view" | "function" | "query";
@@ -66,7 +125,7 @@ interface Props {
   onOpenQuery: (connId: string, query: SavedQuery) => void;
   onShowFunction: (connId: string, routine: RoutineRef) => void;
   onExportStructure: (connId: string, target: ExportStructureTarget, withData: boolean) => void;
-  onNewConnection: () => void;
+  onNewConnection: (group?: string | null) => void;
   onEditConnection: (cfg: ConnConfig) => void;
 }
 
@@ -120,7 +179,91 @@ export function ConnectionTree({
     reload();
   };
 
+  // ---- 分组 ----
+  const [groups, setGroups] = useState<string[]>(loadGroupNames);
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+  const [groupDialog, setGroupDialog] = useState<{ mode: "new" | "rename"; original?: string } | null>(null);
+
+  const persistGroups = (next: string[]) => {
+    setGroups(next);
+    saveGroupNames(next);
+  };
+
+  // 有效组 = localStorage 组名 ∪ 连接里出现过的组名（保序去重）。
+  const allGroups: string[] = (() => {
+    const seen = new Set(groups);
+    const merged = [...groups];
+    for (const c of configs) {
+      if (c.group && !seen.has(c.group)) {
+        seen.add(c.group);
+        merged.push(c.group);
+      }
+    }
+    return merged;
+  })();
+
+  const moveToGroup = async (id: string, group: string | null) => {
+    const cfg = configs.find((c) => c.id === id);
+    if (!cfg || (cfg.group ?? null) === group) return;
+    try {
+      await ipc.saveConnection(configToInput(cfg, group));
+      reload();
+    } catch (e) {
+      toast.error(errorMessage(e));
+    }
+  };
+
+  const submitGroup = (raw: string) => {
+    const name = raw.trim();
+    setGroupDialog(null);
+    if (!name) return;
+    if (groupDialog?.mode === "rename" && groupDialog.original && groupDialog.original !== name) {
+      const orig = groupDialog.original;
+      persistGroups(groups.map((g) => (g === orig ? name : g)).filter((g, i, a) => a.indexOf(g) === i));
+      void Promise.all(
+        configs.filter((c) => c.group === orig).map((c) => ipc.saveConnection(configToInput(c, name))),
+      )
+        .then(reload)
+        .catch((e) => toast.error(errorMessage(e)));
+    } else if (!allGroups.includes(name)) {
+      persistGroups([...groups, name]);
+    }
+  };
+
+  const deleteGroup = (name: string) => {
+    persistGroups(groups.filter((g) => g !== name));
+    void Promise.all(
+      configs.filter((c) => c.group === name).map((c) => ipc.saveConnection(configToInput(c, null))),
+    )
+      .then(reload)
+      .catch((e) => toast.error(errorMessage(e)));
+  };
+
   const filtered = configs.filter((c) => c.name.toLowerCase().includes(filter.toLowerCase()));
+  const byGroup = new Map<string, ConnConfig[]>();
+  const ungrouped: ConnConfig[] = [];
+  for (const c of filtered) {
+    if (c.group && allGroups.includes(c.group)) {
+      const arr = byGroup.get(c.group) ?? [];
+      arr.push(c);
+      byGroup.set(c.group, arr);
+    } else {
+      ungrouped.push(c);
+    }
+  }
+
+  const renderConn = (cfg: ConnConfig) => (
+    <ConnNode
+      key={cfg.id}
+      cfg={cfg}
+      caps={connected[cfg.id] ?? null}
+      onConnect={() => onConnect(cfg)}
+      onDisconnect={() => onDisconnect(cfg)}
+      onEdit={() => onEditConnection(cfg)}
+      onDelete={() => onDelete(cfg)}
+      onOpenTable={onOpenTable}
+    />
+  );
 
   return (
     <div className="flex flex-col h-full text-sm">
@@ -129,9 +272,16 @@ export function ConnectionTree({
           {t("conn.connect")}
         </span>
         <button
-          onClick={onNewConnection}
+          onClick={() => setGroupDialog({ mode: "new" })}
+          title={t("conn.newGroup")}
+          className="ml-auto flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+        >
+          <i className="ri-folder-add-line text-base" />
+        </button>
+        <button
+          onClick={() => onNewConnection()}
           title={t("conn.new")}
-          className="ml-auto flex h-6 w-6 items-center justify-center rounded-md bg-emerald-600 text-white hover:bg-emerald-500"
+          className="flex h-6 w-6 items-center justify-center rounded-md bg-emerald-600 text-white hover:bg-emerald-500"
         >
           <i className="ri-add-line text-base" />
         </button>
@@ -151,21 +301,82 @@ export function ConnectionTree({
 
       <div className="flex-1 overflow-auto px-1.5 pb-2">
         {configs.length === 0 ? (
-          <EmptyState onNew={onNewConnection} />
+          <EmptyState onNew={() => onNewConnection()} />
         ) : (
           <TreeCtx.Provider value={{ onShowDdl, onEditTable, onActivate, onNewObject, onOpenQuery, onShowFunction, onExportStructure }}>
-            {filtered.map((cfg) => (
-              <ConnNode
-                key={cfg.id}
-                cfg={cfg}
-                caps={connected[cfg.id] ?? null}
-                onConnect={() => onConnect(cfg)}
-                onDisconnect={() => onDisconnect(cfg)}
-                onEdit={() => onEditConnection(cfg)}
-                onDelete={() => onDelete(cfg)}
-                onOpenTable={onOpenTable}
-              />
-            ))}
+            <ContextMenu>
+              <ContextMenuTrigger asChild>
+                <div
+                  className="min-h-full"
+                  onDragOver={(e) => e.preventDefault()}
+                  onDrop={(e) => {
+                    const id = e.dataTransfer.getData(CONN_DND);
+                    if (id) void moveToGroup(id, null);
+                  }}
+                >
+                  {allGroups.map((g) => {
+                    const conns = byGroup.get(g) ?? [];
+                    const open = !collapsed[g];
+                    return (
+                      <div key={g}>
+                        <ContextMenu>
+                          <ContextMenuTrigger asChild>
+                            <div
+                              onDragOver={(e) => e.preventDefault()}
+                              onDrop={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                const id = e.dataTransfer.getData(CONN_DND);
+                                if (id) void moveToGroup(id, g);
+                              }}
+                            >
+                              <Row
+                                depth={0}
+                                hasChevron
+                                expanded={open}
+                                icon="ri-folder-3-line"
+                                iconColor="text-amber-400"
+                                label={g}
+                                title={g}
+                                onClick={() => setCollapsed((c) => ({ ...c, [g]: open }))}
+                              />
+                            </div>
+                          </ContextMenuTrigger>
+                          <ContextMenuContent>
+                            <ContextMenuItem icon="ri-add-line" onClick={() => onNewConnection(g)}>
+                              {t("conn.new")}
+                            </ContextMenuItem>
+                            <ContextMenuItem
+                              icon="ri-edit-line"
+                              onClick={() => setGroupDialog({ mode: "rename", original: g })}
+                            >
+                              {t("conn.renameGroup")}
+                            </ContextMenuItem>
+                            <ContextMenuSeparator />
+                            <ContextMenuItem icon="ri-delete-bin-line" destructive onClick={() => deleteGroup(g)}>
+                              {t("conn.deleteGroup")}
+                            </ContextMenuItem>
+                          </ContextMenuContent>
+                        </ContextMenu>
+                        {open && <div className="pl-3">{conns.map(renderConn)}</div>}
+                        {open && conns.length === 0 && (
+                          <div className="py-1 pl-6 text-xs text-muted-foreground/50">{t("conn.groupEmpty")}</div>
+                        )}
+                      </div>
+                    );
+                  })}
+                  {ungrouped.map(renderConn)}
+                </div>
+              </ContextMenuTrigger>
+              <ContextMenuContent>
+                <ContextMenuItem icon="ri-folder-add-line" onClick={() => setGroupDialog({ mode: "new" })}>
+                  {t("conn.newGroup")}
+                </ContextMenuItem>
+                <ContextMenuItem icon="ri-add-line" onClick={() => onNewConnection()}>
+                  {t("conn.new")}
+                </ContextMenuItem>
+              </ContextMenuContent>
+            </ContextMenu>
           </TreeCtx.Provider>
         )}
       </div>
@@ -176,6 +387,13 @@ export function ConnectionTree({
           message={t("conn.deleteConfirm", { name: pendingDelete.name })}
           onCancel={() => setPendingDelete(null)}
           onConfirm={confirmDelete}
+        />
+      )}
+      {groupDialog && (
+        <GroupNameDialog
+          initial={groupDialog.original ?? ""}
+          onCancel={() => setGroupDialog(null)}
+          onConfirm={submitGroup}
         />
       )}
     </div>
@@ -198,6 +416,57 @@ function EmptyState({ onNew }: { onNew: () => void }) {
         <i className="ri-add-line" />
         {t("conn.new")}
       </button>
+    </div>
+  );
+}
+
+/** 新建 / 重命名分组的名称输入弹窗。 */
+function GroupNameDialog({
+  initial,
+  onCancel,
+  onConfirm,
+}: {
+  initial: string;
+  onCancel: () => void;
+  onConfirm: (name: string) => void;
+}) {
+  const { t } = useTranslation();
+  const [name, setName] = useState(initial);
+  const submit = () => {
+    if (name.trim()) onConfirm(name.trim());
+  };
+  return (
+    <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/60 backdrop-blur-sm">
+      <div
+        className="w-[340px] overflow-hidden rounded-xl border border-border bg-card shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="border-b border-border px-5 py-3">
+          <h2 className="text-sm font-semibold text-foreground">
+            {initial ? t("conn.renameGroup") : t("conn.newGroup")}
+          </h2>
+        </div>
+        <div className="space-y-1 px-5 py-4">
+          <Label>{t("conn.groupName")}</Label>
+          <Input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            autoFocus
+            placeholder={t("conn.groupName")}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") submit();
+            }}
+          />
+        </div>
+        <div className="flex justify-end gap-2 border-t border-border px-5 py-3">
+          <Button variant="secondary" onClick={onCancel}>
+            {t("common.cancel")}
+          </Button>
+          <Button onClick={submit} disabled={!name.trim()}>
+            {t("settings.save")}
+          </Button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -325,7 +594,13 @@ function ConnNode({
     <div>
       <ContextMenu>
         <ContextMenuTrigger asChild>
-          <div>
+          <div
+            draggable
+            onDragStart={(e) => {
+              e.dataTransfer.setData(CONN_DND, cfg.id);
+              e.dataTransfer.effectAllowed = "move";
+            }}
+          >
             <Row
               depth={0}
               hasChevron

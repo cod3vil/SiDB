@@ -11,6 +11,11 @@ export default {
   },
   conn: {
     new: "新建连接",
+    newGroup: "新增组",
+    renameGroup: "重命名组",
+    deleteGroup: "删除组",
+    groupName: "组名称",
+    groupEmpty: "空组（右键新建连接，或把连接拖入）",
     newTitle: "新建连接",
     editTitle: "编辑连接",
     test: "测试连接",
