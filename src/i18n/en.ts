@@ -187,6 +187,7 @@ export default {
     welcome: "Select a table on the left, or run SQL above",
     querying: "Querying…",
     resultN: "Result {{n}}",
+    messages: "Messages",
     affected: "{{n}} rows affected",
     affectedRows: "Affected rows: {{n}}",
     lastInsertId: "Last insert id: {{n}}",

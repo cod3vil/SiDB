@@ -187,6 +187,7 @@ export default {
     welcome: "选择左侧表打开数据，或在上方编辑器执行 SQL",
     querying: "查询中…",
     resultN: "结果 {{n}}",
+    messages: "消息",
     affected: "影响 {{n}} 行",
     affectedRows: "影响行数：{{n}}",
     lastInsertId: "插入 ID：{{n}}",

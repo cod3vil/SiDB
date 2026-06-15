@@ -74,6 +74,29 @@ function rowsResult(rs: ResultSet): RunResult {
   return { type: "rows", ...rs };
 }
 
+type RowsResult = Extract<RunResult, { type: "rows" }>;
+type AffectedResult = Extract<RunResult, { type: "affected" }>;
+/** 结果面板：每个 SELECT 结果一个网格面板；所有非查询语句合并为一个「消息」面板。 */
+type ResultPanel = { kind: "rows"; result: RowsResult } | { kind: "messages"; items: AffectedResult[] };
+
+/** 把多语句结果归并成面板：rows 各自成面板，affected 全部并入一个消息面板（置于首个非查询语句处）。 */
+function buildResultPanels(results: RunResult[]): ResultPanel[] {
+  const panels: ResultPanel[] = [];
+  let messages: { kind: "messages"; items: AffectedResult[] } | null = null;
+  for (const r of results) {
+    if (r.type === "rows") {
+      panels.push({ kind: "rows", result: r });
+    } else if (r.type === "affected") {
+      if (!messages) {
+        messages = { kind: "messages", items: [] };
+        panels.push(messages);
+      }
+      messages.items.push(r);
+    }
+  }
+  return panels;
+}
+
 /** 右键「新增函数/查询」时载入编辑器的模板（库/表/视图走可视化弹窗）。 */
 function scaffoldSql(type: NewObjectType, kind?: string): string {
   switch (type) {
@@ -729,8 +752,9 @@ export default function App() {
   const requestExport = () => {
     const tab = activeTab;
     if (!tab?.connId) return;
-    const rr = tab.results[tab.activeResult];
-    if (!rr || rr.type !== "rows") return;
+    const panel = buildResultPanels(tab.results)[tab.activeResult];
+    if (!panel || panel.kind !== "rows") return;
+    const rr = panel.result;
     const tableName = tab.browseTable?.name ?? "result";
     setExportCtx({
       connId: tab.connId,
@@ -947,7 +971,6 @@ export default function App() {
             {(() => {
               const results = activeTab?.results ?? [];
               const ar = activeTab?.activeResult ?? 0;
-              const active = results[ar];
               const browseMode = Boolean(activeTab?.browseTable);
               if (activeTab?.running && results.length === 0) {
                 return (
@@ -967,50 +990,66 @@ export default function App() {
                   </div>
                 );
               }
+              const panels = buildResultPanels(results);
+              const ap = Math.min(ar, panels.length - 1);
+              const panel = panels[ap];
+              let rowsSeen = 0;
               return (
                 <div className="flex min-h-0 flex-1 flex-col">
-                  <div className="mb-1 flex shrink-0 items-stretch overflow-x-auto border-b border-border">
-                    {results.map((_, i) => (
-                      <button
-                        key={i}
-                        onClick={() => updateTab(activeTabId, { activeResult: i })}
-                        className={cn(
-                          "-mb-px shrink-0 border-b-2 px-2.5 py-1 text-xs",
-                          i === ar
-                            ? "border-primary text-foreground"
-                            : "border-transparent text-muted-foreground hover:text-foreground",
-                        )}
-                      >
-                        {t("grid.resultN", { n: i + 1 })}
-                      </button>
-                    ))}
-                  </div>
+                  {panels.length > 1 && (
+                    <div className="mb-1 flex shrink-0 items-stretch overflow-x-auto border-b border-border">
+                      {panels.map((p, i) => {
+                        const label =
+                          p.kind === "rows"
+                            ? t("grid.resultN", { n: ++rowsSeen })
+                            : t("grid.messages");
+                        return (
+                          <button
+                            key={i}
+                            onClick={() => updateTab(activeTabId, { activeResult: i })}
+                            className={cn(
+                              "-mb-px shrink-0 border-b-2 px-2.5 py-1 text-xs",
+                              i === ap
+                                ? "border-primary text-foreground"
+                                : "border-transparent text-muted-foreground hover:text-foreground",
+                            )}
+                          >
+                            {label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
                   <div className="flex min-h-0 flex-1 flex-col">
-                    {active?.type === "rows" ? (
+                    {panel?.kind === "rows" ? (
                       <ResultGrid
-                        result={active}
+                        result={panel.result}
                         onGoto={browseMode ? gotoPage : undefined}
                         table={browseMode ? activeTab?.browseTable : null}
                         onCommit={browseMode ? commitEdits : undefined}
                         onExport={activeTab?.connId ? requestExport : undefined}
                       />
-                    ) : active?.type === "affected" ? (
-                      <div className="flex-1 overflow-auto rounded-md border border-border bg-muted/20 p-3 font-mono text-xs leading-relaxed">
-                        <div className="whitespace-pre-wrap text-foreground">{active.statement}</div>
-                        <div className="mt-1 flex items-center gap-1.5 text-emerald-500">
-                          <i className="ri-checkbox-circle-line" />
-                          {t("grid.affectedRows", { n: active.affected_rows })}
-                        </div>
-                        {active.last_insert_id != null && (
-                          <div className="text-muted-foreground">
-                            <span className="opacity-60">› </span>
-                            {t("grid.lastInsertId", { n: active.last_insert_id })}
+                    ) : panel?.kind === "messages" ? (
+                      <div className="flex-1 space-y-2 overflow-auto rounded-md border border-border bg-muted/20 p-3 font-mono text-xs leading-relaxed">
+                        {panel.items.map((it, i) => (
+                          <div key={i} className={i > 0 ? "border-t border-border/60 pt-2" : ""}>
+                            <div className="whitespace-pre-wrap text-foreground">{it.statement}</div>
+                            <div className="mt-1 flex items-center gap-1.5 text-emerald-500">
+                              <i className="ri-checkbox-circle-line" />
+                              {t("grid.affectedRows", { n: it.affected_rows })}
+                            </div>
+                            {it.last_insert_id != null && (
+                              <div className="text-muted-foreground">
+                                <span className="opacity-60">› </span>
+                                {t("grid.lastInsertId", { n: it.last_insert_id })}
+                              </div>
+                            )}
+                            <div className="text-muted-foreground">
+                              <span className="opacity-60">› </span>
+                              {t("grid.time", { s: (it.elapsed_ms / 1000).toFixed(3) })}
+                            </div>
                           </div>
-                        )}
-                        <div className="text-muted-foreground">
-                          <span className="opacity-60">› </span>
-                          {t("grid.time", { s: (active.elapsed_ms / 1000).toFixed(3) })}
-                        </div>
+                        ))}
                       </div>
                     ) : null}
                   </div>
