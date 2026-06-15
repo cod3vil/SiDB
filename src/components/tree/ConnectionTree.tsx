@@ -33,6 +33,7 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { cn } from "@/lib/utils";
 
 /** 复制到剪贴板（webview 安全上下文）。 */
 function copyText(s: string) {
@@ -183,6 +184,8 @@ export function ConnectionTree({
   const [groups, setGroups] = useState<string[]>(loadGroupNames);
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const [groupDialog, setGroupDialog] = useState<{ mode: "new" | "rename"; original?: string } | null>(null);
+  /** 拖放高亮目标：组名 / 空字符串=未分组根 / null=无。 */
+  const [dragOver, setDragOver] = useState<string | null>(null);
 
   const persistGroups = (next: string[]) => {
     setGroups(next);
@@ -310,6 +313,7 @@ export function ConnectionTree({
                   className="min-h-full"
                   onDragOver={(e) => e.preventDefault()}
                   onDrop={(e) => {
+                    setDragOver(null);
                     const id = e.dataTransfer.getData(CONN_DND);
                     if (id) void moveToGroup(id, null);
                   }}
@@ -318,18 +322,28 @@ export function ConnectionTree({
                     const conns = byGroup.get(g) ?? [];
                     const open = !collapsed[g];
                     return (
-                      <div key={g}>
+                      <div
+                        key={g}
+                        onDragOver={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          if (dragOver !== g) setDragOver(g);
+                        }}
+                        onDragLeave={(e) => {
+                          if (!e.currentTarget.contains(e.relatedTarget as Node)) setDragOver(null);
+                        }}
+                        onDrop={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          setDragOver(null);
+                          const id = e.dataTransfer.getData(CONN_DND);
+                          if (id) void moveToGroup(id, g);
+                        }}
+                        className={cn("rounded-md", dragOver === g && "bg-primary/10 ring-1 ring-primary/40")}
+                      >
                         <ContextMenu>
                           <ContextMenuTrigger asChild>
-                            <div
-                              onDragOver={(e) => e.preventDefault()}
-                              onDrop={(e) => {
-                                e.preventDefault();
-                                e.stopPropagation();
-                                const id = e.dataTransfer.getData(CONN_DND);
-                                if (id) void moveToGroup(id, g);
-                              }}
-                            >
+                            <div>
                               <Row
                                 depth={0}
                                 hasChevron
