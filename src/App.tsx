@@ -923,10 +923,9 @@ export default function App() {
           />
         </aside>
 
-        <div
-          onMouseDown={startDragLeftWidth}
-          className="group w-1 shrink-0 cursor-col-resize bg-border transition-colors hover:bg-primary/50"
-        />
+        <div onMouseDown={startDragLeftWidth} className="group relative w-1 shrink-0 cursor-col-resize">
+          <div className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-border transition-colors group-hover:w-0.5 group-hover:bg-primary/60" />
+        </div>
 
         <main className="flex min-w-0 flex-1 flex-col">
           <TabBar
@@ -966,12 +965,8 @@ export default function App() {
               theme={theme}
             />
           </div>
-          <div
-            onMouseDown={startDragSplit}
-            className="group h-1.5 shrink-0 cursor-row-resize bg-border transition-colors hover:bg-primary/50"
-            title=""
-          >
-            <div className="mx-auto mt-[1px] h-0.5 w-8 rounded-full bg-muted-foreground/30 group-hover:bg-primary-foreground/50" />
+          <div onMouseDown={startDragSplit} className="group relative h-1.5 shrink-0 cursor-row-resize">
+            <div className="absolute inset-x-0 top-1/2 h-px -translate-y-1/2 bg-border transition-colors group-hover:h-0.5 group-hover:bg-primary/60" />
           </div>
           <div className="relative flex min-h-0 flex-1 flex-col p-2">
             {/* 已有结果时再查询：右下角小转圈，保留旧结果。无结果时用居中大 loading（见下）。 */}
@@ -1088,11 +1083,9 @@ export default function App() {
         </main>
 
         {aiOpen && (
-          <div
-            onMouseDown={startDragAiWidth}
-            className="group w-1 shrink-0 cursor-col-resize bg-border transition-colors hover:bg-primary/50"
-            title=""
-          />
+          <div onMouseDown={startDragAiWidth} className="group relative w-1 shrink-0 cursor-col-resize">
+            <div className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-border transition-colors group-hover:w-0.5 group-hover:bg-primary/60" />
+          </div>
         )}
         {aiOpen && (
           <AiPanel
