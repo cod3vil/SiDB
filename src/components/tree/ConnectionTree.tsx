@@ -99,6 +99,8 @@ const TreeCtx = createContext<{
   onOpenQuery: (connId: string, query: SavedQuery) => void;
   onShowFunction: (connId: string, routine: RoutineRef) => void;
   onExportStructure: (connId: string, target: ExportStructureTarget, withData: boolean) => void;
+  /** 过滤词（已小写去空白）；空串表示不过滤。深层节点据此过滤已加载的库/表/视图/函数/查询名。 */
+  filter: string;
 }>({
   onShowDdl: () => undefined,
   onEditTable: () => undefined,
@@ -107,7 +109,13 @@ const TreeCtx = createContext<{
   onOpenQuery: () => undefined,
   onShowFunction: () => undefined,
   onExportStructure: () => undefined,
+  filter: "",
 });
+
+/** 名称是否匹配过滤词（filter 已小写）。 */
+function nameMatches(name: string, filter: string): boolean {
+  return !filter || name.toLowerCase().includes(filter);
+}
 
 /** 转存结构目标：单表（table 非空）或整库 / schema（table 为 null）。 */
 export type ExportStructureTarget = {
@@ -242,18 +250,26 @@ export function ConnectionTree({
       .catch((e) => toast.error(errorMessage(e)));
   };
 
-  const filtered = configs.filter((c) => c.name.toLowerCase().includes(filter.toLowerCase()));
+  // 过滤：连接按名称匹配或「已连接(已打开)」显示；组按名称匹配或含可见连接显示。
+  // 深层(库/表/视图/函数/查询)的过滤在各节点内通过 TreeCtx.filter 完成。
+  const flc = filter.trim().toLowerCase();
+  const connVisible = (c: ConnConfig) =>
+    !flc || c.name.toLowerCase().includes(flc) || Boolean(connected[c.id]);
+
   const byGroup = new Map<string, ConnConfig[]>();
-  const ungrouped: ConnConfig[] = [];
-  for (const c of filtered) {
-    if (c.group && allGroups.includes(c.group)) {
-      const arr = byGroup.get(c.group) ?? [];
-      arr.push(c);
-      byGroup.set(c.group, arr);
-    } else {
-      ungrouped.push(c);
+  const shownGroups: string[] = [];
+  for (const g of allGroups) {
+    const groupMatch = !flc || g.toLowerCase().includes(flc);
+    const members = configs.filter((c) => c.group === g);
+    const vis = groupMatch ? members : members.filter(connVisible);
+    if (groupMatch || vis.length > 0) {
+      byGroup.set(g, vis);
+      shownGroups.push(g);
     }
   }
+  const ungrouped = configs.filter(
+    (c) => !(c.group && allGroups.includes(c.group)) && connVisible(c),
+  );
 
   const renderConn = (cfg: ConnConfig) => (
     <ConnNode
@@ -306,7 +322,7 @@ export function ConnectionTree({
         {configs.length === 0 ? (
           <EmptyState onNew={() => onNewConnection()} />
         ) : (
-          <TreeCtx.Provider value={{ onShowDdl, onEditTable, onActivate, onNewObject, onOpenQuery, onShowFunction, onExportStructure }}>
+          <TreeCtx.Provider value={{ onShowDdl, onEditTable, onActivate, onNewObject, onOpenQuery, onShowFunction, onExportStructure, filter: flc }}>
             <ContextMenu>
               <ContextMenuTrigger asChild>
                 <div
@@ -318,7 +334,7 @@ export function ConnectionTree({
                     if (id) void moveToGroup(id, null);
                   }}
                 >
-                  {allGroups.map((g) => {
+                  {shownGroups.map((g) => {
                     const conns = byGroup.get(g) ?? [];
                     const open = !collapsed[g];
                     return (
@@ -834,13 +850,16 @@ function ContainerNode({
   onOpenTable: (connId: string, table: TableRef) => void;
 }) {
   const { t } = useTranslation();
-  const { onActivate, onExportStructure } = useContext(TreeCtx);
+  const { onActivate, onExportStructure, filter } = useContext(TreeCtx);
   const [expanded, setExpanded] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
   const [confirming, setConfirming] = useState(false);
   const bumpTree = useConnections((s) => s.bumpTree);
   const quoteChar = useConnections((s) => s.connected[connId]?.quote_char) ?? '"';
   const isSchema = listSchema !== null; // PG schema 节点 vs MySQL 数据库节点
+
+  // 过滤时：库/schema 名不匹配且未展开则隐藏（已展开则保留以显示其下过滤后的对象）。
+  if (filter && !nameMatches(label, filter) && !expanded) return null;
 
   const doDelete = async () => {
     setConfirming(false);
@@ -964,7 +983,7 @@ function CategoryNode(
   p: CategoryProps & { kind: "tables" | "views" | "functions" | "queries"; icon: string; label: string },
 ) {
   const { t } = useTranslation();
-  const { onNewObject, onOpenQuery } = useContext(TreeCtx);
+  const { onNewObject, onOpenQuery, filter } = useContext(TreeCtx);
   const treeVersion = useConnections((s) => s.treeVersion);
   const [expanded, setExpanded] = useState(false);
   const [tables, setTables] = useState<TableInfo[] | null>(null);
@@ -1054,10 +1073,12 @@ function CategoryNode(
   const cdepth = p.depth + 1;
   const items =
     p.kind === "tables"
-      ? tables?.filter((x) => x.kind === "table")
+      ? tables?.filter((x) => x.kind === "table" && nameMatches(x.name, filter))
       : p.kind === "views"
-        ? tables?.filter((x) => x.kind === "view")
+        ? tables?.filter((x) => x.kind === "view" && nameMatches(x.name, filter))
         : undefined;
+  const vFuncs = funcs?.filter((f) => nameMatches(f.name, filter));
+  const vQueries = queries?.filter((q) => nameMatches(q.name, filter));
 
   return (
     <div>
@@ -1103,8 +1124,8 @@ function CategoryNode(
           {p.kind === "functions" &&
             (funcs === null ? (
               <Loading depth={cdepth} />
-            ) : funcs.length > 0 ? (
-              funcs.map((fn) => (
+            ) : vFuncs && vFuncs.length > 0 ? (
+              vFuncs.map((fn) => (
                 <FunctionItem
                   key={fn.id != null ? `${fn.name}#${fn.id}` : fn.name}
                   connId={p.connId}
@@ -1121,8 +1142,8 @@ function CategoryNode(
           {p.kind === "queries" &&
             (queries === null ? (
               <Loading depth={cdepth} />
-            ) : queries.length > 0 ? (
-              queries.map((q) => (
+            ) : vQueries && vQueries.length > 0 ? (
+              vQueries.map((q) => (
                 <QueryItem key={q.id} connId={p.connId} query={q} depth={cdepth} onReload={loadQueries} onOpen={onOpenQuery} />
               ))
             ) : (
