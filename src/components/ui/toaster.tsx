@@ -10,9 +10,9 @@ const ICON: Record<ToastKind, string> = {
 };
 
 const TONE: Record<ToastKind, string> = {
-  error: "border-destructive/40 bg-destructive/10 text-destructive",
-  info: "border-border bg-card text-foreground",
-  success: "border-emerald-500/40 bg-emerald-500/10 text-emerald-600",
+  error: "border-destructive bg-destructive text-white",
+  info: "border-transparent bg-foreground text-background",
+  success: "border-emerald-600 bg-emerald-600 text-white",
 };
 
 export function Toaster() {
@@ -25,7 +25,7 @@ export function Toaster() {
           key={t.id}
           onClick={() => dismiss(t.id)}
           className={cn(
-            "animate-toast-in pointer-events-auto flex max-w-[90vw] items-start gap-2 rounded-md border px-3 py-2 text-left text-sm shadow-lg",
+            "animate-toast-in pointer-events-auto flex max-w-[90vw] items-start gap-2 rounded-md border px-3.5 py-2.5 text-left text-sm font-medium shadow-xl",
             TONE[t.kind],
           )}
         >
