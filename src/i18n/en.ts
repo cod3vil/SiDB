@@ -11,6 +11,7 @@ export default {
   },
   conn: {
     new: "New Connection",
+    runSqlFile: "Run SQL File",
     newGroup: "New Group",
     renameGroup: "Rename Group",
     deleteGroup: "Delete Group",

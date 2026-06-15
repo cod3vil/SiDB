@@ -33,7 +33,7 @@ import { useConnections } from "@/stores";
 import { useAi } from "@/stores/ai";
 import { useExports } from "@/stores/export";
 import { toast } from "@/stores/toast";
-import { save as saveFileDialog } from "@tauri-apps/plugin-dialog";
+import { save as saveFileDialog, open as openFileDialog } from "@tauri-apps/plugin-dialog";
 import { listen } from "@tauri-apps/api/event";
 import { checkUpdate } from "@/lib/update";
 import { errorMessage } from "@/lib/error";
@@ -728,6 +728,42 @@ export default function App() {
     updateTab(tab.id, { databases: ctx.databases, schemas: ctx.schemas, tables: ctx.tables });
   };
 
+  // 右击连接「运行 SQL 文件」：选 .sql → 新建 tab → 在该连接当前库执行全部。
+  const runSqlFile = async (connId: string, database: string | null) => {
+    const path = await openFileDialog({ filters: [{ name: "SQL", extensions: ["sql"] }] });
+    if (typeof path !== "string") return;
+    let c = connected[connId];
+    if (!c) {
+      try {
+        c = await ipc.connect(connId);
+        setConnected(connId, c);
+      } catch (e) {
+        toast.error(errorMessage(e));
+        return;
+      }
+    }
+    let sql: string;
+    try {
+      sql = await ipc.readTextFile(path);
+    } catch (e) {
+      toast.error(errorMessage(e));
+      return;
+    }
+    const name = path.split(/[\\/]/).pop() ?? "script.sql";
+    const n = ++seqRef.current;
+    const tab = blankTab(n, { title: name, connId, db: database, sql });
+    setTabs((ts) => [...ts, tab]);
+    setActiveTabId(tab.id);
+    const ctx = await loadContext(connId, c, database, null);
+    updateTab(tab.id, { databases: ctx.databases, schemas: ctx.schemas, tables: ctx.tables, running: true });
+    try {
+      const results = await ipc.runSql(connId, tab.id, sql, 0, PAGE_SIZE, c.supports_use_database ? database : null);
+      updateTab(tab.id, { results, activeResult: 0, running: false });
+    } catch (e) {
+      updateTab(tab.id, { error: errorMessage(e), running: false });
+    }
+  };
+
   // Cmd/Ctrl + S 保存当前 tab。
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -922,6 +958,7 @@ export default function App() {
             onOpenQuery={openSavedQuery}
             onShowFunction={showFunction}
             onExportStructure={exportStructure}
+            onRunSqlFile={runSqlFile}
             onNewConnection={(group) => setDialog({ cfg: null, group })}
             onEditConnection={(c) => setDialog({ cfg: c })}
           />

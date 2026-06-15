@@ -79,6 +79,7 @@ export const ipc = {
     path: string;
   }) => invoke<string>("start_export_structure", args),
   cancelExport: (taskId: string) => invoke<void>("cancel_export", { taskId }),
+  readTextFile: (path: string) => invoke<string>("read_text_file", { path }),
 
   // 查询 / 浏览
   openTableData: (

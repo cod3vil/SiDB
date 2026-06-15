@@ -11,6 +11,7 @@ export default {
   },
   conn: {
     new: "新建连接",
+    runSqlFile: "运行 SQL 文件",
     newGroup: "新增组",
     renameGroup: "重命名组",
     deleteGroup: "删除组",

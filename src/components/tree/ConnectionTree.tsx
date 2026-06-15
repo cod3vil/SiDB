@@ -99,6 +99,8 @@ const TreeCtx = createContext<{
   onOpenQuery: (connId: string, query: SavedQuery) => void;
   onShowFunction: (connId: string, routine: RoutineRef) => void;
   onExportStructure: (connId: string, target: ExportStructureTarget, withData: boolean) => void;
+  /** 右击连接「运行 SQL 文件」：选文件后在该连接的当前库执行。 */
+  onRunSqlFile: (connId: string, database: string | null) => void;
   /** 过滤词（已小写去空白）；空串表示不过滤。深层节点据此过滤已加载的库/表/视图/函数/查询名。 */
   filter: string;
 }>({
@@ -109,6 +111,7 @@ const TreeCtx = createContext<{
   onOpenQuery: () => undefined,
   onShowFunction: () => undefined,
   onExportStructure: () => undefined,
+  onRunSqlFile: () => undefined,
   filter: "",
 });
 
@@ -134,6 +137,7 @@ interface Props {
   onOpenQuery: (connId: string, query: SavedQuery) => void;
   onShowFunction: (connId: string, routine: RoutineRef) => void;
   onExportStructure: (connId: string, target: ExportStructureTarget, withData: boolean) => void;
+  onRunSqlFile: (connId: string, database: string | null) => void;
   onNewConnection: (group?: string | null) => void;
   onEditConnection: (cfg: ConnConfig) => void;
 }
@@ -147,6 +151,7 @@ export function ConnectionTree({
   onOpenQuery,
   onShowFunction,
   onExportStructure,
+  onRunSqlFile,
   onNewConnection,
   onEditConnection,
 }: Props) {
@@ -322,7 +327,7 @@ export function ConnectionTree({
         {configs.length === 0 ? (
           <EmptyState onNew={() => onNewConnection()} />
         ) : (
-          <TreeCtx.Provider value={{ onShowDdl, onEditTable, onActivate, onNewObject, onOpenQuery, onShowFunction, onExportStructure, filter: flc }}>
+          <TreeCtx.Provider value={{ onShowDdl, onEditTable, onActivate, onNewObject, onOpenQuery, onShowFunction, onExportStructure, onRunSqlFile, filter: flc }}>
             <ContextMenu>
               <ContextMenuTrigger asChild>
                 <div
@@ -586,7 +591,7 @@ function ConnNode({
   onOpenTable: (connId: string, table: TableRef) => void;
 }) {
   const { t } = useTranslation();
-  const { onNewObject, onActivate } = useContext(TreeCtx);
+  const { onNewObject, onActivate, onRunSqlFile } = useContext(TreeCtx);
   const [expanded, setExpanded] = useState(false);
   const [connecting, setConnecting] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
@@ -691,6 +696,9 @@ function ConnNode({
           </ContextMenuItem>
           <ContextMenuItem icon="ri-file-copy-line" onClick={() => copyText(cfg.name)}>
             {t("tree.copyName")}
+          </ContextMenuItem>
+          <ContextMenuItem icon="ri-file-code-line" onClick={() => onRunSqlFile(cfg.id, cfg.database)}>
+            {t("conn.runSqlFile")}
           </ContextMenuItem>
           <ContextMenuSeparator />
           <ContextMenuItem icon="ri-edit-line" onClick={onEdit}>

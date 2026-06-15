@@ -83,6 +83,7 @@ pub fn run() {
             commands::start_export_result,
             commands::start_export_structure,
             commands::cancel_export,
+            commands::read_text_file,
         ])
         .run(tauri::generate_context!())
         .expect("error while running SiDB");

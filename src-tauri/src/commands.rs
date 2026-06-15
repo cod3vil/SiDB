@@ -877,3 +877,17 @@ fn finish_export(
     };
     emit_progress(app, p);
 }
+
+/// 读取本地文本文件（用于「运行 SQL 文件」；路径由用户经对话框选择）。限制大小避免 OOM。
+#[tauri::command]
+pub fn read_text_file(path: String) -> R<String> {
+    const MAX: u64 = 16 * 1024 * 1024; // 16MB
+    let meta =
+        std::fs::metadata(&path).map_err(|e| AppError::Internal(format!("读取文件失败: {e}")))?;
+    if meta.len() > MAX {
+        return Err(AppError::Internal(
+            "文件过大（>16MB），请用命令行工具导入".into(),
+        ));
+    }
+    std::fs::read_to_string(&path).map_err(|e| AppError::Internal(format!("读取文件失败: {e}")))
+}
