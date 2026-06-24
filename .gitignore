@@ -29,6 +29,12 @@ Cargo.lock.orig
 .env.*
 !.env.example
 
+# 签名证书 / 私钥（绝不入库）
+*.p12
+*.cer
+*.key
+cert/
+
 # App runtime data (created at runtime under user home; never commit)
 .sidb/
 
