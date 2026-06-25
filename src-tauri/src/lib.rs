@@ -3,6 +3,7 @@
 pub mod adapters;
 pub mod ai;
 pub mod commands;
+pub mod kv;
 pub mod models;
 pub mod services;
 pub mod sqlsplit;
@@ -80,6 +81,13 @@ pub fn run() {
             commands::ai_test_provider,
             commands::ai_chat,
             commands::ai_confirm_write,
+            commands::redis_db_count,
+            commands::redis_dbsize,
+            commands::redis_scan,
+            commands::redis_key_detail,
+            commands::redis_get_value,
+            commands::redis_command,
+            commands::redis_export,
             commands::start_export_result,
             commands::start_export_structure,
             commands::cancel_export,

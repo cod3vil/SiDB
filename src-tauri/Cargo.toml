@@ -1,6 +1,6 @@
 [package]
 name = "sidb"
-version = "1.0.0"
+version = "1.1.0"
 description = "轻量级跨平台数据库客户端"
 authors = ["SiDB"]
 edition = "2021"
@@ -38,6 +38,14 @@ sqlx = { version = "0.8", default-features = false, features = [
   "rust_decimal",
   "json",
   "uuid",
+] }
+
+# Redis (KV 引擎，单机 standalone)。raw command + connection-manager + rustls TLS。
+redis = { version = "0.27", features = [
+  "tokio-comp",
+  "connection-manager",
+  "tls-rustls",
+  "tokio-rustls-comp",
 ] }
 
 # SSH tunnel — pure Rust, avoids libssh2 cross-compile pain.

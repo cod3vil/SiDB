@@ -13,11 +13,13 @@ import { TabBar } from "@/components/tab/TabBar";
 import { Toaster } from "@/components/ui/toaster";
 import { SettingsDialog } from "@/components/settings/SettingsDialog";
 import { AiPanel } from "@/components/ai/AiPanel";
+import { RedisWorkspace } from "@/components/redis/RedisWorkspace";
 import { TopBar } from "@/components/toolbar/TopBar";
 import { SqlEditor } from "@/components/editor/SqlEditor";
 import { ResultGrid } from "@/components/grid/ResultGrid";
 import { ipc } from "@/ipc";
 import type {
+  AiResultContext,
   ChangeSet,
   ConnConfig,
   DbCapabilities,
@@ -41,7 +43,12 @@ import { LANGUAGES, setLanguage } from "@/i18n";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { type Theme, getTheme, applyTheme } from "@/lib/theme";
 import { cn } from "@/lib/utils";
+import { renderValue } from "@/lib/value";
 import { version } from "../package.json";
+
+// AI 结果上下文：限制行数与单元格长度，避免提示过大。
+const AI_RESULT_MAX_ROWS = 50;
+const AI_RESULT_MAX_CELL = 200;
 
 const PAGE_SIZE = 1000;
 
@@ -97,6 +104,32 @@ function buildResultPanels(results: RunResult[]): ResultPanel[] {
   return panels;
 }
 
+/** 把当前激活 tab 的结果面板转成 AI 上下文快照（截断行数/单元格），供 AI 直接针对结果讨论。 */
+function buildAiResultContext(tab: QueryTab | undefined): AiResultContext | null {
+  if (!tab) return null;
+  const panels = buildResultPanels(tab.results);
+  if (panels.length === 0) return null;
+  const panel = panels[Math.min(tab.activeResult, panels.length - 1)];
+  if (!panel || panel.kind !== "rows") return null;
+  const rs = panel.result;
+  const clip = (s: string) =>
+    s.length > AI_RESULT_MAX_CELL ? `${s.slice(0, AI_RESULT_MAX_CELL)}…` : s;
+  const rows = rs.rows
+    .slice(0, AI_RESULT_MAX_ROWS)
+    .map((r) => r.map((v) => clip(renderValue(v).text)));
+  const sql = tab.browseTable ? `浏览表 ${tab.browseTable.name}` : tab.sql || null;
+  const truncated =
+    rs.rows.length > AI_RESULT_MAX_ROWS ||
+    (rs.total_hint != null && rs.total_hint > rows.length);
+  return {
+    sql,
+    columns: rs.columns.map((c) => c.name),
+    rows,
+    total: rs.total_hint,
+    truncated,
+  };
+}
+
 /** 右键「新增函数/查询」时载入编辑器的模板（库/表/视图走可视化弹窗）。 */
 function scaffoldSql(type: NewObjectType, kind?: string): string {
   switch (type) {
@@ -150,6 +183,8 @@ export default function App() {
     schema: string | null;
   } | null>(null);
   const [editTableDialog, setEditTableDialog] = useState<{ connId: string; table: TableRef } | null>(null);
+  // 当前打开的 Redis 工作区连接（非空时主区显示 RedisWorkspace 而非 SQL 编辑/网格）。
+  const [redisConn, setRedisConn] = useState<string | null>(null);
 
   const [saveDialog, setSaveDialog] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -370,8 +405,16 @@ export default function App() {
     updateTab(tabId, { schema, tables });
   };
 
+  // Redis 连接：确保连上后打开 KV 工作区（主区切到 RedisWorkspace）。
+  const openRedis = async (connId: string) => {
+    const c = await ensureConnected(connId);
+    if (!c) return;
+    setRedisConn(connId);
+  };
+
   // 左树点连接 / 库 / schema → 绑定到激活 tab，使工具栏联动（避免"未连接"错误）。
   const activateContext = async (connId: string, database: string | null, schema: string | null) => {
+    setRedisConn(null); // 切回 SQL 主区
     const tabId = activeTabId;
     const c = await ensureConnected(connId);
     if (!c) return;
@@ -625,9 +668,19 @@ export default function App() {
         database: refDatabase,
         schema: refSchema,
         table: activeTab.browseTable?.name ?? null,
+        result: buildAiResultContext(activeTab),
       },
       message,
     );
+  };
+
+  // 结果网格「问 AI」：带上当前结果集，让 AI 直接解读。
+  const askAboutResult = () => {
+    if (!activeTab?.connId) {
+      toast.error(t("ai.noConn"));
+      return;
+    }
+    aiAsk(t("ai.analyzeResultPrompt"));
   };
 
   const aiEditorAction = (kind: "explain" | "optimize", sql: string) => {
@@ -959,6 +1012,7 @@ export default function App() {
             onShowFunction={showFunction}
             onExportStructure={exportStructure}
             onRunSqlFile={runSqlFile}
+            onOpenRedis={openRedis}
             onNewConnection={(group) => setDialog({ cfg: null, group })}
             onEditConnection={(c) => setDialog({ cfg: c })}
           />
@@ -968,6 +1022,10 @@ export default function App() {
           <div className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-border transition-colors group-hover:w-0.5 group-hover:bg-primary/60" />
         </div>
 
+        {redisConn ? (
+          <RedisWorkspace key={redisConn} connId={redisConn} />
+        ) : (
+        <>
         <main className="flex min-w-0 flex-1 flex-col">
           <TabBar
             tabs={tabs.map((x) => ({ id: x.id, title: x.title }))}
@@ -1098,6 +1156,7 @@ export default function App() {
                             table={editTable}
                             onCommit={editTable ? commitEdits : undefined}
                             onExport={activeTab?.connId ? requestExport : undefined}
+                            onAskAi={activeTab?.connId ? askAboutResult : undefined}
                           />
                         );
                       })()
@@ -1143,11 +1202,14 @@ export default function App() {
             database={refDatabase}
             schema={refSchema}
             table={activeTab?.browseTable?.name ?? null}
+            resultContext={buildAiResultContext(activeTab)}
             onInsertSql={(sql) => updateTab(activeTabId, { sql })}
             onRunSql={runText}
             onConfirmWrite={aiConfirmWrite}
             onClose={toggleAi}
           />
+        )}
+        </>
         )}
       </div>
 

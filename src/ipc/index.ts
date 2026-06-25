@@ -12,6 +12,10 @@ import type {
   ExportFormat,
   ExportScope,
   ChangeSet,
+  RedisScanPage,
+  RedisKeyDetail,
+  RedisValue,
+  RedisReply,
   ResultSet,
   RunResult,
   RoutineInfo,
@@ -134,6 +138,27 @@ export const ipc = {
   aiChat: (input: AiChatInput) => invoke<AiChatResult>("ai_chat", { input }),
   aiConfirmWrite: (connId: string, proposalId: string) =>
     invoke<RunResult[]>("ai_confirm_write", { input: { conn_id: connId, proposal_id: proposalId } }),
+
+  // ---- Redis (KV) ----
+  redisDbCount: (connId: string) => invoke<number>("redis_db_count", { connId }),
+  redisDbsize: (connId: string, db: number) => invoke<number>("redis_dbsize", { connId, db }),
+  redisScan: (connId: string, db: number, pattern: string, cursor: string, count: number) =>
+    invoke<RedisScanPage>("redis_scan", { connId, db, pattern, cursor, count }),
+  redisKeyDetail: (connId: string, db: number, key: string) =>
+    invoke<RedisKeyDetail>("redis_key_detail", { connId, db, key }),
+  redisGetValue: (
+    connId: string,
+    db: number,
+    key: string,
+    cursor: string,
+    count: number,
+    start: number,
+    stop: number,
+  ) => invoke<RedisValue>("redis_get_value", { connId, db, key, cursor, count, start, stop }),
+  redisCommand: (connId: string, db: number, args: string[]) =>
+    invoke<RedisReply>("redis_command", { connId, db, args }),
+  redisExport: (connId: string, db: number, pattern: string, path: string) =>
+    invoke<number>("redis_export", { connId, db, pattern, path }),
 };
 
 export type { ResultSet, RunResult, ConnConfig, TableRef } from "./types";

@@ -61,6 +61,7 @@ const KIND_DEFAULTS: Record<DbKind, Partial<FormState>> = {
   mysql: { port: "3306", user: "root", sslMode: "prefer" },
   postgres: { port: "5432", user: "postgres", schema: "public", sslMode: "prefer" },
   sqlite: {},
+  redis: { port: "6379", user: "", database: "0", sslMode: "disable" },
 };
 
 function initState(initial?: ConnConfig | null, initialGroup?: string | null): FormState {
@@ -115,7 +116,7 @@ function initState(initial?: ConnConfig | null, initialGroup?: string | null): F
   };
 }
 
-const KINDS: DbKind[] = ["mysql", "postgres", "sqlite"];
+const KINDS: DbKind[] = ["mysql", "postgres", "sqlite", "redis"];
 
 export function ConnectionDialog({ initial, initialGroup, onClose, onSaved }: Props) {
   const { t } = useTranslation();
@@ -126,6 +127,7 @@ export function ConnectionDialog({ initial, initialGroup, onClose, onSaved }: Pr
 
   const isSqlite = f.kind === "sqlite";
   const isPg = f.kind === "postgres";
+  const isRedis = f.kind === "redis";
   const set = (patch: Partial<FormState>) => setF((s) => ({ ...s, ...patch }));
 
   const pickKind = (kind: DbKind) => {
@@ -317,11 +319,11 @@ export function ConnectionDialog({ initial, initialGroup, onClose, onSaved }: Pr
                     </Field>
                   </div>
                   <div className="flex gap-2">
-                    <Field label={t("conn.database")} className="flex-1">
+                    <Field label={isRedis ? t("conn.redisDb") : t("conn.database")} className="flex-1">
                       <Input
                         value={f.database}
                         onChange={(v) => set({ database: v })}
-                        placeholder={t("conn.databaseOptional")}
+                        placeholder={isRedis ? "0" : t("conn.databaseOptional")}
                       />
                     </Field>
                     {isPg && (

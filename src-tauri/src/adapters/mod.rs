@@ -129,6 +129,8 @@ pub fn create_adapter(kind: DbKind) -> Box<dyn DbAdapter> {
         DbKind::Mysql => Box::new(mysql::MySqlAdapter::new()),
         DbKind::Postgres => Box::new(postgres::PostgresAdapter::new()),
         DbKind::Sqlite => Box::new(sqlite::SqliteAdapter::new()),
+        // Redis 不是 SQL adapter；连接路由在 ConnectionManager 层分叉，绝不会走到这里。
+        DbKind::Redis => unreachable!("redis uses RedisAdapter, not create_adapter"),
     }
 }
 

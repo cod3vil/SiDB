@@ -12,7 +12,10 @@ const TTL_SECS: i64 = 300;
 pub struct Proposal {
     pub id: String,
     pub conn_id: String,
+    /// SQL 提案为语句；Redis 提案为命令行（如 `DEL key`）。
     pub sql: String,
+    /// Redis 提案的逻辑库（SQL 提案为 None）。
+    pub db: Option<i64>,
     pub created_at: DateTime<Utc>,
 }
 
@@ -27,13 +30,23 @@ impl ProposalStore {
         Self::default()
     }
 
-    /// 暂存一条写提案，返回其 id。
+    /// 暂存一条 SQL 写提案，返回其 id。
     pub fn put(&self, conn_id: &str, sql: &str) -> String {
+        self.insert(conn_id, sql, None)
+    }
+
+    /// 暂存一条 Redis 写提案（带逻辑库）。
+    pub fn put_redis(&self, conn_id: &str, db: i64, command: &str) -> String {
+        self.insert(conn_id, command, Some(db))
+    }
+
+    fn insert(&self, conn_id: &str, sql: &str, db: Option<i64>) -> String {
         let id = format!("wp_{}", self.seq.fetch_add(1, Ordering::Relaxed));
         let p = Proposal {
             id: id.clone(),
             conn_id: conn_id.to_string(),
             sql: sql.to_string(),
+            db,
             created_at: Utc::now(),
         };
         if let Ok(mut m) = self.inner.lock() {

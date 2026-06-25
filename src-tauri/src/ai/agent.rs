@@ -36,6 +36,7 @@ pub async fn run_turn(
     ctx: ToolCtx,
     history: Vec<Msg>,
     user_msg: String,
+    result_ctx: Option<String>,
 ) -> Result<TurnResult, AppError> {
     let mut brief = crate::ai::context::schema_brief(
         conns,
@@ -65,6 +66,7 @@ pub async fn run_turn(
         ctx.database.as_deref(),
         ctx.schema.as_deref(),
         ctx.table.as_deref(),
+        result_ctx.as_deref(),
     );
     let tool_defs = tools::tool_defs();
 
@@ -127,11 +129,101 @@ pub async fn run_turn(
     })
 }
 
+/// Redis（KV）版的工具循环：用 redis_tools 的工具 + 适配器执行。
+#[allow(clippy::too_many_arguments)]
+pub async fn run_turn_redis(
+    provider: &dyn AiProvider,
+    conns: &ConnectionManager,
+    proposals: &ProposalStore,
+    conn_id: &str,
+    db: i64,
+    selected_key: Option<String>,
+    history: Vec<Msg>,
+    user_msg: String,
+    result_ctx: Option<String>,
+) -> Result<TurnResult, AppError> {
+    let system = build_system_redis(db, selected_key.as_deref(), result_ctx.as_deref());
+    let tool_defs = crate::ai::redis_tools::tool_defs_redis();
+
+    let mut messages = history;
+    messages.push(Msg::user_text(user_msg));
+
+    let mut steps: Vec<ToolStep> = Vec::new();
+    let mut out_proposals: Vec<ProposalDto> = Vec::new();
+
+    for _ in 0..MAX_ITERS {
+        let resp = provider
+            .chat(ChatRequest {
+                system: system.clone(),
+                messages: messages.clone(),
+                tools: tool_defs.clone(),
+                max_tokens: MAX_TOKENS,
+            })
+            .await?;
+        messages.push(Msg {
+            role: "assistant".into(),
+            content: resp.content.clone(),
+        });
+        let calls = resp.tool_uses();
+        if calls.is_empty() {
+            return Ok(TurnResult {
+                reply: resp.text(),
+                steps,
+                proposals: out_proposals,
+            });
+        }
+        let mut results: Vec<ContentBlock> = Vec::new();
+        for (id, name, input) in calls {
+            let outcome =
+                crate::ai::redis_tools::execute_redis(conns, proposals, conn_id, db, name, input).await;
+            steps.push(outcome.step);
+            if let Some((pid, cmd)) = outcome.proposal {
+                out_proposals.push(ProposalDto { id: pid, sql: cmd });
+            }
+            results.push(ContentBlock::ToolResult {
+                tool_use_id: id.to_string(),
+                content: outcome.content,
+                is_error: outcome.is_error,
+            });
+        }
+        messages.push(Msg {
+            role: "user".into(),
+            content: results,
+        });
+    }
+
+    Ok(TurnResult {
+        reply: "（已达到工具调用上限，请缩小问题范围或重试）".into(),
+        steps,
+        proposals: out_proposals,
+    })
+}
+
+fn build_system_redis(db: i64, selected_key: Option<&str>, result_ctx: Option<&str>) -> String {
+    let mut s = String::from(
+        "你是内嵌在 Redis 客户端里的中文 AI 助手。当前连接是 Redis（单机），不是 SQL 数据库。\n\
+        规则：\n\
+        - 只读查询用 redis_read（如 GET / HGETALL / LRANGE / TYPE / TTL）；服务端会拒绝任何非只读命令。\n\
+        - 不确定有哪些键时，先用 scan_keys（可带 glob 模式，如 user:*），不要凭空猜键名。\n\
+        - 任何写操作（SET/DEL/HSET/EXPIRE/...）只能用 propose_write 产出提案，由用户在界面确认后才执行。绝不要声称写操作已完成。\n\
+        - 回答简洁、用中文；给命令时用 ```` ```\n命令\n``` ```` 代码块。",
+    );
+    s.push_str(&format!("\n\n当前逻辑库：DB {db}。"));
+    if let Some(k) = selected_key.filter(|x| !x.is_empty()) {
+        s.push_str(&format!("\n用户当前选中的键是 `{k}`。"));
+    }
+    if let Some(rc) = result_ctx.filter(|x| !x.is_empty()) {
+        s.push_str(rc);
+    }
+    s
+}
+
 fn build_system(
     brief: &str,
     database: Option<&str>,
     schema: Option<&str>,
     table: Option<&str>,
+    result_ctx: Option<&str>,
 ) -> String {
     let mut s = String::from(
         "你是内嵌在数据库客户端里的中文 AI 助手。你可以使用工具探查并查询当前连接的数据库。\n\
@@ -158,6 +250,9 @@ fn build_system(
     if !brief.is_empty() {
         s.push('\n');
         s.push_str(brief);
+    }
+    if let Some(rc) = result_ctx.filter(|x| !x.is_empty()) {
+        s.push_str(rc);
     }
     s
 }
@@ -221,6 +316,7 @@ mod tests {
             ToolCtx::default(),
             vec![],
             "给 t 表加一列 x".into(),
+            None,
         )
         .await
         .unwrap();

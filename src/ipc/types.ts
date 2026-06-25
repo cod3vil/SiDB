@@ -1,6 +1,56 @@
 // 前端 DTO 类型 —— 与 Rust models.rs 手工对齐（一期不引代码生成，TDD §9）。
 
-export type DbKind = "mysql" | "postgres" | "sqlite";
+export type DbKind = "mysql" | "postgres" | "sqlite" | "redis";
+
+/** 连接引擎家族：SQL（mysql/pg/sqlite）或 Redis（KV）。由 kind 推导。 */
+export type Engine = "sql" | "redis";
+export function engineOf(kind: DbKind): Engine {
+  return kind === "redis" ? "redis" : "sql";
+}
+
+// ---- Redis (KV) DTO（对齐后端 kv 模块的 Serialize）----
+export interface RedisField {
+  text: string;
+  /** true 表示非 UTF-8，text 为十六进制。 */
+  binary: boolean;
+}
+export interface RedisKeyMeta {
+  name: string;
+  type: string;
+  ttl_ms: number;
+}
+export interface RedisScanPage {
+  cursor: string;
+  keys: RedisKeyMeta[];
+}
+export interface RedisKeyDetail {
+  type: string;
+  ttl_ms: number;
+  mem_bytes: number | null;
+  size: number;
+}
+export interface RedisStreamEntry {
+  id: string;
+  fields: [RedisField, RedisField][];
+}
+export type RedisValue =
+  | { type: "string"; value: RedisField }
+  | { type: "hash"; cursor: string; fields: [RedisField, RedisField][]; total: number }
+  | { type: "list"; start: number; stop: number; items: RedisField[]; total: number }
+  | { type: "set"; cursor: string; members: RedisField[]; total: number }
+  | { type: "zset"; start: number; stop: number; items: [RedisField, number][]; total: number }
+  | { type: "stream"; entries: RedisStreamEntry[]; total: number }
+  | { type: "none" };
+export type RedisReply =
+  | { kind: "nil" }
+  | { kind: "int"; value: number }
+  | { kind: "str"; text: string; binary: boolean }
+  | { kind: "status"; text: string }
+  | { kind: "error"; text: string }
+  | { kind: "double"; value: number }
+  | { kind: "bool"; value: boolean }
+  | { kind: "array"; items: RedisReply[] }
+  | { kind: "map"; items: [RedisReply, RedisReply][] };
 export type SslMode = "disable" | "prefer" | "require";
 
 // Value：与 Rust `#[serde(tag = "t", content = "v")]` 对齐。
@@ -234,6 +284,19 @@ export interface AiChatMsg {
   text: string;
 }
 
+/** 当前查询结果集的精简快照，作为 AI 上下文（让 AI 能直接针对屏幕上的结果讨论）。 */
+export interface AiResultContext {
+  /** 产生该结果的 SQL（表浏览时为简述）。 */
+  sql: string | null;
+  columns: string[];
+  /** 已字符串化的单元格，前 N 行。 */
+  rows: string[][];
+  /** 总行数提示（未知为 null）。 */
+  total: number | null;
+  /** 是否对行数做了截断。 */
+  truncated: boolean;
+}
+
 export interface AiChatInput {
   conn_id: string;
   database: string | null;
@@ -241,6 +304,8 @@ export interface AiChatInput {
   table: string | null;
   history: AiChatMsg[];
   message: string;
+  /** 当前结果集上下文（可选）。 */
+  result?: AiResultContext | null;
 }
 
 /** 一次工具调用的展示摘要。 */

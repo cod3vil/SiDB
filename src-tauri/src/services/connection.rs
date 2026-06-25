@@ -209,6 +209,7 @@ pub fn default_port(kind: DbKind) -> u16 {
         DbKind::Mysql => 3306,
         DbKind::Postgres => 5432,
         DbKind::Sqlite => 0,
+        DbKind::Redis => 6379,
     }
 }
 
@@ -223,7 +224,7 @@ pub struct SessionTimeouts {
     pub write: Option<Duration>,
 }
 
-/// 活动会话。
+/// 活动会话（SQL）。
 pub struct Session {
     pub conn_id: String,
     pub adapter: tokio::sync::Mutex<Box<dyn DbAdapter>>,
@@ -233,9 +234,31 @@ pub struct Session {
     pub write_timeout: Option<Duration>,
 }
 
+/// 活动会话（Redis / KV）。与 SQL 会话并行存放，命令层据连接 kind 路由。
+pub struct RedisSession {
+    pub conn_id: String,
+    pub adapter: tokio::sync::Mutex<crate::kv::RedisAdapter>,
+    pub tunnel: Option<String>,
+}
+
+/// Redis 连接对前端的「能力」占位（前端按 kind==redis 切到 RedisWorkspace，不读这些 SQL 字段）。
+fn redis_caps() -> DbCapabilities {
+    DbCapabilities {
+        supports_ssh: true,
+        supports_cancel: false,
+        supports_schemas: false,
+        supports_multi_database: false,
+        supports_use_database: false,
+        param_style: ParamStyle::Question,
+        quote_char: '"',
+        has_rowid_fallback: false,
+    }
+}
+
 #[derive(Default)]
 pub struct ConnectionManager {
     sessions: DashMap<String, Arc<Session>>,
+    redis_sessions: DashMap<String, Arc<RedisSession>>,
 }
 
 impl ConnectionManager {
@@ -247,6 +270,10 @@ impl ConnectionManager {
         self.sessions.get(conn_id).map(|s| s.clone())
     }
 
+    pub fn get_redis(&self, conn_id: &str) -> Option<Arc<RedisSession>> {
+        self.redis_sessions.get(conn_id).map(|s| s.clone())
+    }
+
     /// 建立连接（隧道由 commands 层在调用前完成并通过 override 传入）。
     pub async fn connect(
         &self,
@@ -255,6 +282,19 @@ impl ConnectionManager {
         tunnel: Option<String>,
         timeouts: SessionTimeouts,
     ) -> Result<DbCapabilities> {
+        // Redis 走独立适配器（不经 SQL DbAdapter）。
+        if matches!(cfg.kind, DbKind::Redis) {
+            let adapter = crate::kv::RedisAdapter::connect(&target).await?;
+            adapter.ping().await?;
+            let session = Arc::new(RedisSession {
+                conn_id: cfg.id.clone(),
+                adapter: tokio::sync::Mutex::new(adapter),
+                tunnel,
+            });
+            self.redis_sessions.insert(cfg.id.clone(), session);
+            return Ok(redis_caps());
+        }
+
         let mut adapter = create_adapter(cfg.kind);
         adapter.connect(&target).await?;
         adapter.ping().await?;
@@ -288,6 +328,9 @@ impl ConnectionManager {
 
     pub async fn disconnect(&self, conn_id: &str) {
         if let Some((_, session)) = self.sessions.remove(conn_id) {
+            session.adapter.lock().await.disconnect().await;
+        }
+        if let Some((_, session)) = self.redis_sessions.remove(conn_id) {
             session.adapter.lock().await.disconnect().await;
         }
     }

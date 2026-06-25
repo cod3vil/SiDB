@@ -11,6 +11,7 @@ pub mod audit;
 pub mod context;
 pub mod proposals;
 pub mod provider;
+pub mod redis_tools;
 pub mod tools;
 
 pub use provider::{

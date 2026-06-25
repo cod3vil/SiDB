@@ -2,13 +2,6 @@
 
 **English** · [简体中文](./README.md)
 
-# Author's Note
-This is a fully AI-generated product. Apart from this note, I did not write a single line of code or documentation — not even the logo icon. It is a demonstration of AI's ability to build a complete product end to end.
-Thanks to the following AIs:
-- Claude
-- ChatGPT
-- DeepSeek
-
 
 # SiDB
 
@@ -16,16 +9,31 @@ Thanks to the following AIs:
 
 Tauri 2 · Rust · React — installer is only ~7MB
 
-Supports **MySQL · PostgreSQL · SQLite**
+Supports **MySQL · PostgreSQL · SQLite · Redis**
+
+<br />
+
+<img src="docs/screenshot.png" alt="SiDB screenshot" width="900" />
+
+<br /><br />
+
+<img src="docs/screenshot-redis.png" alt="SiDB Redis workspace" width="900" />
 
 </div>
 
 ---
 
+## Author's Note
+This is a fully AI-generated product. Apart from this note, I did not write a single line of code or documentation — not even the logo icon. It is a demonstration of AI's ability to build a complete product end to end.
+Thanks to the following AIs:
+- Claude
+- ChatGPT
+- DeepSeek
+
 ## ✨ Features
 
 ### Connection management
-- Three data sources: MySQL / PostgreSQL / SQLite
+- Four data sources: MySQL / PostgreSQL / SQLite / Redis
 - **SSH tunneling** (password / private-key auth; local port forwarding is transparent to the user)
 - Credentials (passwords, key passphrases, AI API keys) are stored **only in the OS keychain** (macOS Keychain / Windows Credential Manager); never written in plaintext to config files or logs
 - Test connection, grouping, edit, delete (keychain entries are cleaned up on delete)
@@ -59,9 +67,16 @@ Supports **MySQL · PostgreSQL · SQLite**
 - **Write operations are only produced as proposals and require explicit user confirmation before execution**; every AI-issued SQL is written to an audit log
 - Provider: Anthropic / OpenAI-compatible / custom endpoint; the API key goes into the keychain
 
+### Redis (KV)
+- Dedicated workspace: switch DB 0–15, filter by type, pattern scan (incremental `SCAN` + load more)
+- View/edit every type: string / hash / list / set / zset / stream; set/persist TTL, rename, delete
+- Built-in command console (structured RESP rendering)
+- AI assistant: natural language → `SCAN`/read-only commands; write commands are produced as **proposals**, run only after confirmation
+- One-click export of the current DB's matching keys to JSON
+
 ### Misc
-- Settings: theme (light / dark / follow system), language (中文 / English), default page size
-- Cross-platform: macOS (Apple Silicon + Intel), Windows
+- Settings: theme (light / dark / follow system), language (18 languages), default page size
+- Cross-platform: macOS (Apple Silicon), Windows
 
 ---
 

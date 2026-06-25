@@ -2,30 +2,37 @@
 
 [English](./README.en.md) · **简体中文**
 
-# 作者声明
-这是一个纯AI生成的产品，除了这个声明，我并没有编写任何一行代码、文档，甚至Logo图标，这验证了AI创建完整产品的能力。
-感谢以下AI的帮助：
-- Claude
-- ChatGPT
-- Deepseek
-
-
 # SiDB
 
 **轻量、快速、跨平台的数据库客户端，内置 AI 助手**
 
 Tauri 2 · Rust · React — 安装包仅约 7MB
 
-支持 **MySQL · PostgreSQL · SQLite**
+支持 **MySQL · PostgreSQL · SQLite · Redis**
+
+<br />
+
+<img src="docs/screenshot.png" alt="SiDB 界面截图" width="900" />
+
+<br /><br />
+
+<img src="docs/screenshot-redis.png" alt="SiDB Redis 工作区" width="900" />
 
 </div>
 
 ---
 
+## 作者声明
+这是一个纯AI生成的产品，除了这个声明，我并没有编写任何一行代码、文档，甚至Logo图标，这验证了AI创建完整产品的能力。
+感谢以下AI的帮助：
+- Claude
+- ChatGPT
+- Deepseek
+
 ## ✨ 功能
 
 ### 连接管理
-- MySQL / PostgreSQL / SQLite 三种数据源
+- MySQL / PostgreSQL / SQLite / Redis 四种数据源
 - **SSH 隧道**（密码 / 私钥认证，本地端口转发对用户透明）
 - 凭证（密码、私钥口令、AI API Key）**只存系统钥匙串**（macOS Keychain / Windows 凭据管理器），配置文件与日志中绝不含明文
 - 连接测试、分组、编辑、删除（删除时同步清理钥匙串）
@@ -59,9 +66,16 @@ Tauri 2 · Rust · React — 安装包仅约 7MB
 - **写操作只产出提案，必须用户确认后才执行**；所有 AI 触发的 SQL 写审计日志
 - Provider 可选 Anthropic / OpenAI 兼容 / 自定义端点，API Key 入钥匙串
 
+### Redis（KV）
+- 独立工作区：DB 0–15 切换、按类型过滤、模式扫描（`SCAN` 增量 + 加载更多）
+- 各类型查看/编辑：string / hash / list / set / zset / stream，TTL 设置与持久化、重命名、删除
+- 内置命令台（RESP 回复结构化渲染）
+- AI 助手：自然语言 → `SCAN`/只读命令探查，写命令只产**提案**确认后执行
+- 一键导出当前库匹配键为 JSON
+
 ### 其他
-- 设置：主题（亮 / 暗 / 跟随系统）、语言（中文 / English）、默认分页大小
-- 跨平台：macOS（Apple Silicon + Intel）、Windows
+- 设置：主题（亮 / 暗 / 跟随系统）、语言（18种语言）、默认分页大小
+- 跨平台：macOS（Apple Silicon）、Windows
 
 ---
 

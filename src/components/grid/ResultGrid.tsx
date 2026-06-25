@@ -16,13 +16,15 @@ interface Props {
   onCommit?: (cs: ChangeSet) => Promise<void> | void;
   /** 点击「导出」：由上层打开导出弹窗（带当前 tab 上下文）。 */
   onExport?: () => void;
+  /** 点击「问 AI」：把当前结果集喂给 AI 侧栏讨论。 */
+  onAskAi?: () => void;
 }
 
 const ROW_HEIGHT = 28;
 const DEFAULT_W = 160;
 const MIN_W = 56;
 
-export function ResultGrid({ result, onGoto, table, onCommit, onExport }: Props) {
+export function ResultGrid({ result, onGoto, table, onCommit, onExport, onAskAi }: Props) {
   const { t } = useTranslation();
   const parentRef = useRef<HTMLDivElement>(null);
 
@@ -372,6 +374,16 @@ export function ResultGrid({ result, onGoto, table, onCommit, onExport }: Props)
         <span className="ml-1">{t("grid.page", { from, to })}</span>
         {total != null && <span>· {t("grid.totalRows", { n: total })}</span>}
         <div className="ml-auto flex items-center gap-3">
+          {onAskAi && (
+            <button
+              onClick={onAskAi}
+              title={t("grid.askAi")}
+              className="flex items-center gap-1 rounded px-1.5 py-0.5 text-xs hover:bg-accent hover:text-foreground"
+            >
+              <i className="ri-sparkling-2-line text-primary" />
+              {t("grid.askAi")}
+            </button>
+          )}
           {onExport && (
             <button
               onClick={onExport}

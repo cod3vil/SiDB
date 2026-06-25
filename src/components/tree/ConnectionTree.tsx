@@ -101,6 +101,8 @@ const TreeCtx = createContext<{
   onExportStructure: (connId: string, target: ExportStructureTarget, withData: boolean) => void;
   /** 右击连接「运行 SQL 文件」：选文件后在该连接的当前库执行。 */
   onRunSqlFile: (connId: string, database: string | null) => void;
+  /** Redis 连接：连上后打开 RedisWorkspace（不走 SQL 树/工具栏）。 */
+  onOpenRedis: (connId: string) => void;
   /** 过滤词（已小写去空白）；空串表示不过滤。深层节点据此过滤已加载的库/表/视图/函数/查询名。 */
   filter: string;
 }>({
@@ -112,6 +114,7 @@ const TreeCtx = createContext<{
   onShowFunction: () => undefined,
   onExportStructure: () => undefined,
   onRunSqlFile: () => undefined,
+  onOpenRedis: () => undefined,
   filter: "",
 });
 
@@ -138,6 +141,7 @@ interface Props {
   onShowFunction: (connId: string, routine: RoutineRef) => void;
   onExportStructure: (connId: string, target: ExportStructureTarget, withData: boolean) => void;
   onRunSqlFile: (connId: string, database: string | null) => void;
+  onOpenRedis: (connId: string) => void;
   onNewConnection: (group?: string | null) => void;
   onEditConnection: (cfg: ConnConfig) => void;
 }
@@ -152,6 +156,7 @@ export function ConnectionTree({
   onShowFunction,
   onExportStructure,
   onRunSqlFile,
+  onOpenRedis,
   onNewConnection,
   onEditConnection,
 }: Props) {
@@ -327,7 +332,7 @@ export function ConnectionTree({
         {configs.length === 0 ? (
           <EmptyState onNew={() => onNewConnection()} />
         ) : (
-          <TreeCtx.Provider value={{ onShowDdl, onEditTable, onActivate, onNewObject, onOpenQuery, onShowFunction, onExportStructure, onRunSqlFile, filter: flc }}>
+          <TreeCtx.Provider value={{ onShowDdl, onEditTable, onActivate, onNewObject, onOpenQuery, onShowFunction, onExportStructure, onRunSqlFile, onOpenRedis, filter: flc }}>
             <ContextMenu>
               <ContextMenuTrigger asChild>
                 <div
@@ -591,10 +596,12 @@ function ConnNode({
   onOpenTable: (connId: string, table: TableRef) => void;
 }) {
   const { t } = useTranslation();
-  const { onNewObject, onActivate, onRunSqlFile } = useContext(TreeCtx);
+  const { onNewObject, onActivate, onRunSqlFile, onOpenRedis } = useContext(TreeCtx);
   const [expanded, setExpanded] = useState(false);
   const [connecting, setConnecting] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
+
+  const isRedis = cfg.kind === "redis";
 
   const toggle = async () => {
     if (!caps) {
@@ -606,6 +613,11 @@ function ConnNode({
         return;
       }
       setConnecting(false);
+    }
+    // Redis：连上后直接打开 KV 工作区，不走 SQL 树展开 / 工具栏联动。
+    if (isRedis) {
+      onOpenRedis(cfg.id);
+      return;
     }
     // 联动右侧工具栏：把当前连接绑定到激活的查询 tab。
     onActivate(cfg.id, null, null);
@@ -673,7 +685,10 @@ function ConnNode({
             <ContextMenuItem
               icon="ri-plug-line"
               onClick={async () => {
-                if (await ensureConnected()) setExpanded(true);
+                if (await ensureConnected()) {
+                  if (isRedis) onOpenRedis(cfg.id);
+                  else setExpanded(true);
+                }
               }}
             >
               {t("conn.connect")}
@@ -697,9 +712,11 @@ function ConnNode({
           <ContextMenuItem icon="ri-file-copy-line" onClick={() => copyText(cfg.name)}>
             {t("tree.copyName")}
           </ContextMenuItem>
-          <ContextMenuItem icon="ri-file-code-line" onClick={() => onRunSqlFile(cfg.id, cfg.database)}>
-            {t("conn.runSqlFile")}
-          </ContextMenuItem>
+          {!isRedis && (
+            <ContextMenuItem icon="ri-file-code-line" onClick={() => onRunSqlFile(cfg.id, cfg.database)}>
+              {t("conn.runSqlFile")}
+            </ContextMenuItem>
+          )}
           <ContextMenuSeparator />
           <ContextMenuItem icon="ri-edit-line" onClick={onEdit}>
             {t("conn.edit")}

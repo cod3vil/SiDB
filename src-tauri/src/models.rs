@@ -261,6 +261,8 @@ pub enum DbKind {
     Mysql,
     Postgres,
     Sqlite,
+    /// Redis（KV 引擎，单机）。走独立的 RedisAdapter，不经 SQL 的 DbAdapter。
+    Redis,
 }
 
 /// 字节字面量风格：`x'AB'`（MySQL/SQLite）或 `'\xAB'`（PG bytea）。

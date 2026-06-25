@@ -16,6 +16,8 @@ interface Props {
   database: string | null;
   schema: string | null;
   table: string | null;
+  /** 当前结果集快照：随提问发给 AI，使其能针对屏幕上的结果讨论。 */
+  resultContext?: import("@/ipc/types").AiResultContext | null;
   onInsertSql: (sql: string) => void;
   onRunSql: (sql: string) => void;
   onConfirmWrite: (proposalId: string) => Promise<void>;
@@ -75,7 +77,7 @@ function Markdown({
   );
 }
 
-export function AiPanel({ width, connId, database, schema, table, onInsertSql, onRunSql, onConfirmWrite, onClose }: Props) {
+export function AiPanel({ width, connId, database, schema, table, resultContext, onInsertSql, onRunSql, onConfirmWrite, onClose }: Props) {
   const { t } = useTranslation();
   const messages = useAi(activeMessages);
   const busy = useAi((s) => s.busy);
@@ -103,7 +105,7 @@ export function AiPanel({ width, connId, database, schema, table, onInsertSql, o
       return;
     }
     setInput("");
-    await ask({ connId, database, schema, table }, message);
+    await ask({ connId, database, schema, table, result: resultContext ?? null }, message);
   };
 
   const confirm = async (id: string) => {
@@ -172,6 +174,15 @@ export function AiPanel({ width, connId, database, schema, table, onInsertSql, o
       </div>
 
       <div className="shrink-0 border-t border-border p-2">
+        {resultContext && resultContext.columns.length > 0 && (
+          <div className="mb-1.5 flex items-center gap-1.5 text-[10px] text-muted-foreground">
+            <i className="ri-table-line text-primary" />
+            {t("ai.resultAttached", {
+              cols: resultContext.columns.length,
+              rows: resultContext.rows.length,
+            })}
+          </div>
+        )}
         <div className="flex items-end gap-1.5">
           <textarea
             value={input}

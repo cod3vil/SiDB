@@ -34,6 +34,8 @@ export interface AskCtx {
   schema: string | null;
   /** 界面选中的表；未指明表名时默认只在该表操作。 */
   table: string | null;
+  /** 当前结果集快照（可选）：让 AI 能直接针对屏幕上的结果讨论。 */
+  result?: import("@/ipc/types").AiResultContext | null;
 }
 
 interface AiState {
@@ -152,6 +154,7 @@ export const useAi = create<AiState>()(
             table: ctx.table,
             history,
             message,
+            result: ctx.result ?? null,
           });
           patchLast({ text: res.reply, steps: res.steps, proposals: res.proposals, pending: false });
         } catch (e) {

@@ -148,14 +148,25 @@ pub async fn test_connection(state: State<'_, AppState>, input: ConnConfigInput)
         connect_timeout_secs: timeout,
         sqlite_path: input.sqlite_path.clone(),
     };
-    let mut adapter = crate::adapters::create_adapter(input.kind);
-    let result = async {
-        adapter.connect(&target).await?;
-        adapter.ping().await?;
-        Ok::<(), AppError>(())
-    }
-    .await;
-    adapter.disconnect().await;
+    let result = if matches!(input.kind, DbKind::Redis) {
+        // Redis 走独立适配器测试连通性。
+        async {
+            let a = crate::kv::RedisAdapter::connect(&target).await?;
+            a.ping().await?;
+            Ok::<(), AppError>(())
+        }
+        .await
+    } else {
+        let mut adapter = crate::adapters::create_adapter(input.kind);
+        let r = async {
+            adapter.connect(&target).await?;
+            adapter.ping().await?;
+            Ok::<(), AppError>(())
+        }
+        .await;
+        adapter.disconnect().await;
+        r
+    };
     if let Some(id) = tunnel_id {
         state.tunnels.close(&id);
     }
@@ -224,6 +235,103 @@ fn session(state: &AppState, conn_id: &str) -> R<Arc<connection::Session>> {
         .conns
         .get(conn_id)
         .ok_or_else(|| AppError::Internal("not connected".into()))
+}
+
+fn redis_session(state: &AppState, conn_id: &str) -> R<Arc<connection::RedisSession>> {
+    state
+        .conns
+        .get_redis(conn_id)
+        .ok_or_else(|| AppError::Internal("redis not connected".into()))
+}
+
+// ---- Redis（KV）命令：仅在 kind==redis 的连接上有效 -------------------------
+
+#[tauri::command]
+pub async fn redis_db_count(state: State<'_, AppState>, conn_id: String) -> R<i64> {
+    let s = redis_session(&state, &conn_id)?;
+    let a = s.adapter.lock().await;
+    a.db_count().await
+}
+
+#[tauri::command]
+pub async fn redis_dbsize(state: State<'_, AppState>, conn_id: String, db: i64) -> R<i64> {
+    let s = redis_session(&state, &conn_id)?;
+    let a = s.adapter.lock().await;
+    a.dbsize(db).await
+}
+
+#[tauri::command]
+pub async fn redis_scan(
+    state: State<'_, AppState>,
+    conn_id: String,
+    db: i64,
+    pattern: String,
+    cursor: String,
+    count: i64,
+) -> R<crate::kv::ScanPage> {
+    let s = redis_session(&state, &conn_id)?;
+    let a = s.adapter.lock().await;
+    a.scan(db, &pattern, &cursor, count).await
+}
+
+#[tauri::command]
+pub async fn redis_key_detail(
+    state: State<'_, AppState>,
+    conn_id: String,
+    db: i64,
+    key: String,
+) -> R<crate::kv::KeyDetail> {
+    let s = redis_session(&state, &conn_id)?;
+    let a = s.adapter.lock().await;
+    a.key_detail(db, &key).await
+}
+
+#[tauri::command]
+pub async fn redis_get_value(
+    state: State<'_, AppState>,
+    conn_id: String,
+    db: i64,
+    key: String,
+    cursor: String,
+    count: i64,
+    start: i64,
+    stop: i64,
+) -> R<crate::kv::RedisValue> {
+    let s = redis_session(&state, &conn_id)?;
+    let a = s.adapter.lock().await;
+    a.get_value(db, &key, &cursor, count, start, stop).await
+}
+
+#[tauri::command]
+pub async fn redis_command(
+    state: State<'_, AppState>,
+    conn_id: String,
+    db: i64,
+    args: Vec<String>,
+) -> R<crate::kv::Reply> {
+    let s = redis_session(&state, &conn_id)?;
+    let a = s.adapter.lock().await;
+    a.command(db, &args).await
+}
+
+/// 导出匹配的键（含完整值）为 JSON 文件，返回导出的键数。
+#[tauri::command]
+pub async fn redis_export(
+    state: State<'_, AppState>,
+    conn_id: String,
+    db: i64,
+    pattern: String,
+    path: String,
+) -> R<usize> {
+    let s = redis_session(&state, &conn_id)?;
+    let json = {
+        let a = s.adapter.lock().await;
+        a.dump(db, &pattern, 100_000).await?
+    };
+    let n = json.as_array().map(|a| a.len()).unwrap_or(0);
+    let body = serde_json::to_string_pretty(&json).map_err(|e| AppError::Internal(e.to_string()))?;
+    std::fs::write(&path, body).map_err(|e| AppError::Internal(e.to_string()))?;
+    Ok(n)
 }
 
 #[tauri::command]
@@ -546,6 +654,16 @@ pub struct AiChatMsg {
     pub text: String,
 }
 
+/// 当前查询结果集快照（前端截断后传入），作为 AI 上下文。
+#[derive(serde::Deserialize)]
+pub struct AiResultContext {
+    pub sql: Option<String>,
+    pub columns: Vec<String>,
+    pub rows: Vec<Vec<String>>,
+    pub total: Option<i64>,
+    pub truncated: bool,
+}
+
 #[derive(serde::Deserialize)]
 pub struct AiChatInput {
     pub conn_id: String,
@@ -554,6 +672,38 @@ pub struct AiChatInput {
     pub table: Option<String>,
     pub history: Vec<AiChatMsg>,
     pub message: String,
+    #[serde(default)]
+    pub result: Option<AiResultContext>,
+}
+
+/// 把结果集快照格式化成可读文本，注入系统提示，让 AI 直接据此作答。
+fn format_result_context(r: &AiResultContext) -> String {
+    let mut s =
+        String::from("\n\n当前查询结果（用户屏幕上看到的结果，可直接据此作答，无需重复查询）：");
+    if let Some(sql) = r.sql.as_deref().filter(|x| !x.is_empty()) {
+        s.push_str(&format!("\nSQL：{sql}"));
+    }
+    s.push_str(&format!(
+        "\n列（{}）：{}",
+        r.columns.len(),
+        r.columns.join(", ")
+    ));
+    if let Some(t) = r.total {
+        s.push_str(&format!("\n总行数：{t}"));
+    }
+    let shown = r.rows.len();
+    if r.truncated {
+        s.push_str(&format!("\n（以下为前 {shown} 行，结果已截断）"));
+    } else {
+        s.push_str(&format!("\n（共 {shown} 行）"));
+    }
+    s.push('\n');
+    s.push_str(&r.columns.join(" | "));
+    for row in &r.rows {
+        s.push('\n');
+        s.push_str(&row.join(" | "));
+    }
+    s
 }
 
 /// 据当前 AiSettings + 钥匙串 key 构造 provider。
@@ -586,13 +736,6 @@ pub async fn ai_chat(
     input: AiChatInput,
 ) -> R<crate::ai::agent::TurnResult> {
     let provider = build_provider(&state)?;
-    // 切换会话当前库到所选库（MySQL 生效；PG/SQLite 无操作），
-    // 让 AI 的裸查询（SELECT DATABASE() / 未限定表名）命中用户选中的数据库而非连接默认库。
-    {
-        let s = session(&state, &input.conn_id)?;
-        let mut a = s.adapter.lock().await;
-        a.use_database(input.database.clone()).await?;
-    }
     let history: Vec<crate::ai::provider::Msg> = input
         .history
         .into_iter()
@@ -608,6 +751,35 @@ pub async fn ai_chat(
             }
         })
         .collect();
+    let result_ctx = input.result.as_ref().map(format_result_context);
+
+    // Redis 连接：走 KV 工具的 agent（database 字段承载逻辑库索引）。
+    if state.conns.get_redis(&input.conn_id).is_some() {
+        let db = input
+            .database
+            .as_deref()
+            .and_then(|s| s.trim().parse::<i64>().ok())
+            .unwrap_or(0);
+        return crate::ai::agent::run_turn_redis(
+            provider.as_ref(),
+            &state.conns,
+            &state.proposals,
+            &input.conn_id,
+            db,
+            input.table,
+            history,
+            input.message,
+            result_ctx,
+        )
+        .await;
+    }
+
+    // SQL：切换会话当前库到所选库（MySQL 生效；PG/SQLite 无操作）。
+    {
+        let s = session(&state, &input.conn_id)?;
+        let mut a = s.adapter.lock().await;
+        a.use_database(input.database.clone()).await?;
+    }
     let ctx = crate::ai::tools::ToolCtx {
         database: input.database,
         schema: input.schema,
@@ -621,6 +793,7 @@ pub async fn ai_chat(
         ctx,
         history,
         input.message,
+        result_ctx,
     )
     .await
 }
@@ -642,6 +815,19 @@ pub async fn ai_confirm_write(
         .ok_or_else(|| AppError::Internal("提案不存在或已过期".into()))?;
     if p.conn_id != input.conn_id {
         return Err(AppError::Internal("提案与当前连接不匹配".into()));
+    }
+    // Redis 提案：用 KV 适配器执行命令行。
+    if let Some(rs) = state.conns.get_redis(&input.conn_id) {
+        let args = crate::ai::redis_tools::tokenize(&p.sql);
+        let a = rs.adapter.lock().await;
+        let reply = a.command(p.db.unwrap_or(0), &args).await?;
+        crate::ai::audit::record(&input.conn_id, "confirm_write", &p.sql, "executed");
+        return Ok(vec![RunResult::Affected {
+            affected_rows: 0,
+            last_insert_id: None,
+            elapsed_ms: 0,
+            statement: format!("{} → {}", p.sql, crate::ai::redis_tools::reply_to_text(&reply)),
+        }]);
     }
     let s = session(&state, &input.conn_id)?;
     let a = s.adapter.lock().await;

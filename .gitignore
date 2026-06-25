@@ -45,3 +45,6 @@ TDD.md
 HANDOFF.md
 PROGRESS.md
 .claude/
+
+# 七牛上传脚本（含密钥，勿入库）
+scripts/upload-qiniu.mjs
