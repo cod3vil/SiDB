@@ -23,13 +23,15 @@ pub fn mysql_kind(type_name: &str) -> &'static str {
     match base(type_name).as_str() {
         "bool" | "boolean" => "Bool",
         "tinyint" | "smallint" | "mediumint" | "int" | "integer" | "bigint" | "year" => "Int",
+        // BIT：sqlx 仅允许解码为无符号整数（不可作 Vec<u8>）；走 Int 分支的 u64 兜底。
+        "bit" => "Int",
         "decimal" | "dec" | "numeric" | "fixed" => "Decimal",
         "float" | "double" | "real" => "Float",
         "date" => "Date",
         "time" => "Time",
         "datetime" | "timestamp" => "DateTime",
         "json" => "Json",
-        "binary" | "varbinary" | "tinyblob" | "blob" | "mediumblob" | "longblob" | "bit" => "Bytes",
+        "binary" | "varbinary" | "tinyblob" | "blob" | "mediumblob" | "longblob" => "Bytes",
         "char" | "varchar" | "tinytext" | "text" | "mediumtext" | "longtext" | "enum" | "set" => {
             "Text"
         }
