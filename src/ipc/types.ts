@@ -57,8 +57,8 @@ export type SslMode = "disable" | "prefer" | "require";
 export type Value =
   | { t: "Null" }
   | { t: "Bool"; v: boolean }
-  | { t: "Int"; v: number }
-  | { t: "UInt"; v: number }
+  | { t: "Int"; v: number | string }
+  | { t: "UInt"; v: number | string }
   | { t: "Float"; v: number }
   | { t: "Decimal"; v: string }
   | { t: "Text"; v: string }

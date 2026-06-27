@@ -9,6 +9,59 @@ use serde::{Deserialize, Serialize};
 // 统一值类型
 // ---------------------------------------------------------------------------
 
+/// JS 安全整数上限（2^53 - 1）：超过此范围用字符串传，避免前端丢精度。
+const JS_SAFE_INT: i64 = 9_007_199_254_740_991;
+
+/// i64 序列化：范围内为数字，超范围为字符串；反序列化两者都接受。
+mod js_int {
+    use super::JS_SAFE_INT;
+    use serde::{Deserialize, Deserializer, Serializer};
+    pub fn serialize<S: Serializer>(v: &i64, s: S) -> Result<S::Ok, S::Error> {
+        if *v <= JS_SAFE_INT && *v >= -JS_SAFE_INT {
+            s.serialize_i64(*v)
+        } else {
+            s.serialize_str(&v.to_string())
+        }
+    }
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum NumOrStr {
+        N(i64),
+        S(String),
+    }
+    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<i64, D::Error> {
+        match NumOrStr::deserialize(d)? {
+            NumOrStr::N(n) => Ok(n),
+            NumOrStr::S(s) => s.trim().parse().map_err(serde::de::Error::custom),
+        }
+    }
+}
+
+/// u64 序列化：同 [`js_int`]，超范围用字符串。
+mod js_uint {
+    use super::JS_SAFE_INT;
+    use serde::{Deserialize, Deserializer, Serializer};
+    pub fn serialize<S: Serializer>(v: &u64, s: S) -> Result<S::Ok, S::Error> {
+        if *v <= JS_SAFE_INT as u64 {
+            s.serialize_u64(*v)
+        } else {
+            s.serialize_str(&v.to_string())
+        }
+    }
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum NumOrStr {
+        N(u64),
+        S(String),
+    }
+    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<u64, D::Error> {
+        match NumOrStr::deserialize(d)? {
+            NumOrStr::N(n) => Ok(n),
+            NumOrStr::S(s) => s.trim().parse().map_err(serde::de::Error::custom),
+        }
+    }
+}
+
 /// 统一值类型：所有数据库的单元格值收敛到这里。
 ///
 /// 使用 `#[serde(tag = "t", content = "v")]`，前端按 `t` 字段分支渲染。
@@ -17,8 +70,9 @@ use serde::{Deserialize, Serialize};
 pub enum Value {
     Null,
     Bool(bool),
-    Int(i64),
-    UInt(u64),
+    // 64 位整数（如 Snowflake ID）超出 JS 安全整数范围会丢精度：超范围时序列化为字符串。
+    Int(#[serde(with = "js_int")] i64),
+    UInt(#[serde(with = "js_uint")] u64),
     Float(f64),
     /// 字符串保真，避免浮点误差。
     Decimal(String),

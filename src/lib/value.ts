@@ -60,13 +60,20 @@ export function editText(v: Value): string {
   }
 }
 
+// 整数输入：在 JS 安全范围内用 number，否则保留字符串（避免 Snowflake 等 64 位 ID 丢精度）。
+function intValue(input: string): number | string {
+  const trimmed = input.trim();
+  const n = Number(trimmed);
+  return Number.isSafeInteger(n) ? n : trimmed;
+}
+
 // 文本输入 → Value（编辑提交用，按列 value_kind 推断）。
 export function parseValue(input: string, valueKind: string): Value {
   switch (valueKind) {
     case "Int":
-      return { t: "Int", v: Number.parseInt(input, 10) };
+      return { t: "Int", v: intValue(input) };
     case "UInt":
-      return { t: "UInt", v: Number.parseInt(input, 10) };
+      return { t: "UInt", v: intValue(input) };
     case "Float":
       return { t: "Float", v: Number.parseFloat(input) };
     case "Bool":
