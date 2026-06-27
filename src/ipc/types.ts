@@ -233,6 +233,30 @@ export interface ColumnInfo {
   is_primary_key: boolean;
   comment: string | null;
 }
+export interface IndexInfo {
+  name: string;
+  columns: string[];
+  unique: boolean;
+  primary: boolean;
+}
+export interface ForeignKeyInfo {
+  name: string;
+  columns: string[];
+  ref_table: string;
+  ref_columns: string[];
+}
+export interface TableSchema {
+  table: TableRef;
+  columns: ColumnInfo[];
+  indexes: IndexInfo[];
+  foreign_keys: ForeignKeyInfo[];
+}
+export interface TableOptions {
+  engine: string | null;
+  charset: string | null;
+  collation: string | null;
+  comment: string | null;
+}
 
 // AppError：与 Rust `#[serde(tag = "code", content = "detail")]` 对齐。
 export type AppErrorCode =

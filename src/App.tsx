@@ -69,6 +69,9 @@ interface QueryTab {
   error: string | null;
   browseTable: TableRef | null;
   page: number;
+  /** 表浏览的服务端排序列 / 方向（null=不排序）。 */
+  sortCol?: string | null;
+  sortAsc?: boolean;
   savedQueryId?: string;
   /** 该 tab 为函数 tab（新增或编辑）：保存=执行/替换函数，而非收藏查询。 */
   creatingFunction?: boolean;
@@ -185,6 +188,8 @@ export default function App() {
   const [editTableDialog, setEditTableDialog] = useState<{ connId: string; table: TableRef } | null>(null);
   // 当前打开的 Redis 工作区连接（非空时主区显示 RedisWorkspace 而非 SQL 编辑/网格）。
   const [redisConn, setRedisConn] = useState<string | null>(null);
+  // 「问 AI」附带的结果集快照（用户点按钮后附带，可在 AI 面板里删除）。
+  const [aiAttached, setAiAttached] = useState<AiResultContext | null>(null);
 
   const [saveDialog, setSaveDialog] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -365,7 +370,9 @@ export default function App() {
   };
 
   const ensureConnected = async (connId: string): Promise<DbCapabilities | null> => {
-    let c = connected[connId];
+    // 读实时 store（而非渲染闭包）：树刚连上并 setConnected 后，闭包里的 connected 可能还是旧值，
+    // 否则会误判「未连接」而重复 connect（重连会短暂拆掉刚建立的会话，引发 not connected 报错）。
+    let c = useConnections.getState().connected[connId];
     if (!c) {
       try {
         c = await ipc.connect(connId);
@@ -445,6 +452,8 @@ export default function App() {
       tables: ctx.tables,
       browseTable: table,
       page: 0,
+      sortCol: null,
+      sortAsc: true,
       error: null,
       title: table.name,
       creatingFunction: false,
@@ -668,19 +677,20 @@ export default function App() {
         database: refDatabase,
         schema: refSchema,
         table: activeTab.browseTable?.name ?? null,
-        result: buildAiResultContext(activeTab),
+        result: aiAttached,
       },
       message,
     );
   };
 
-  // 结果网格「问 AI」：带上当前结果集，让 AI 直接解读。
+  // 结果网格「问 AI」：把当前结果**附带**进 AI 面板（显示可删除的标签），不直接发送，由用户继续提问。
   const askAboutResult = () => {
     if (!activeTab?.connId) {
       toast.error(t("ai.noConn"));
       return;
     }
-    aiAsk(t("ai.analyzeResultPrompt"));
+    setAiAttached(buildAiResultContext(activeTab));
+    useAi.getState().setOpen(true);
   };
 
   const aiEditorAction = (kind: "explain" | "optimize", sql: string) => {
@@ -696,8 +706,27 @@ export default function App() {
     const tab = activeTab;
     if (!tab?.connId || !tab.browseTable) return;
     const next = Math.max(0, n);
-    const rs = await ipc.openTableData(tab.connId, tab.browseTable, next, PAGE_SIZE);
+    const rs = await ipc.openTableData(tab.connId, tab.browseTable, next, PAGE_SIZE, tab.sortCol ?? null, tab.sortAsc ?? true);
     updateTab(tab.id, { page: next, results: [rowsResult(rs)], activeResult: 0 });
+  };
+
+  // 表浏览快捷排序：点列头循环 升序 → 降序 → 取消；服务端重查第 1 页（跨页正确）。
+  const sortTable = async (col: string) => {
+    const tab = activeTab;
+    if (!tab?.connId || !tab.browseTable) return;
+    let nextCol: string | null = col;
+    let nextAsc = true;
+    if (tab.sortCol === col) {
+      if (tab.sortAsc) nextAsc = false; // asc → desc
+      else nextCol = null; // desc → 取消
+    }
+    updateTab(tab.id, { sortCol: nextCol, sortAsc: nextAsc, page: 0 });
+    try {
+      const rs = await ipc.openTableData(tab.connId, tab.browseTable, 0, PAGE_SIZE, nextCol, nextAsc);
+      updateTab(tab.id, { results: [rowsResult(rs)], activeResult: 0 });
+    } catch (e) {
+      toast.error(errorMessage(e));
+    }
   };
 
   // 提交单元格编辑：写库后刷新当前页。失败抛出（让网格保留编辑）。
@@ -1157,6 +1186,9 @@ export default function App() {
                             onCommit={editTable ? commitEdits : undefined}
                             onExport={activeTab?.connId ? requestExport : undefined}
                             onAskAi={activeTab?.connId ? askAboutResult : undefined}
+                            sortColumn={browseMode ? activeTab?.sortCol ?? null : null}
+                            sortAsc={activeTab?.sortAsc ?? true}
+                            onSort={browseMode ? sortTable : undefined}
                           />
                         );
                       })()
@@ -1202,7 +1234,8 @@ export default function App() {
             database={refDatabase}
             schema={refSchema}
             table={activeTab?.browseTable?.name ?? null}
-            resultContext={buildAiResultContext(activeTab)}
+            resultContext={aiAttached}
+            onClearResult={() => setAiAttached(null)}
             onInsertSql={(sql) => updateTab(activeTabId, { sql })}
             onRunSql={runText}
             onConfirmWrite={aiConfirmWrite}

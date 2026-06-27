@@ -32,6 +32,8 @@ pub struct AppState {
     pub proposals: crate::ai::proposals::ProposalStore,
     /// 进行中的导出任务取消标志（task_id → flag）。
     pub exports: Arc<DashMap<String, Arc<AtomicBool>>>,
+    /// 进行中的 AI 请求取消令牌（conn_id → token）；`ai_cancel` 触发后中止 agent。
+    pub ai_cancels: Arc<DashMap<String, tokio_util::sync::CancellationToken>>,
 }
 
 impl AppState {
@@ -42,6 +44,7 @@ impl AppState {
             tunnels: TunnelManager::new(),
             proposals: crate::ai::proposals::ProposalStore::new(),
             exports: Arc::new(DashMap::new()),
+            ai_cancels: Arc::new(DashMap::new()),
         }
     }
 }
@@ -174,11 +177,37 @@ pub async fn test_connection(state: State<'_, AppState>, input: ConnConfigInput)
 }
 
 #[tauri::command]
-pub async fn connect(state: State<'_, AppState>, conn_id: String) -> R<DbCapabilities> {
-    let cfg = connection::load_configs()
+pub async fn connect(
+    state: State<'_, AppState>,
+    conn_id: String,
+    database: Option<String>,
+) -> R<DbCapabilities> {
+    let mut cfg = connection::load_configs()
         .into_iter()
         .find(|c| c.id == conn_id)
         .ok_or_else(|| AppError::Internal("connection not found".into()))?;
+
+    // 切库重连（如 PG 浏览其它库）：覆盖目标库。
+    let switching_db = database.as_deref().map(str::trim).filter(|s| !s.is_empty());
+    if let Some(db) = switching_db {
+        cfg.database = Some(db.to_string());
+    }
+
+    // 幂等：未指定切库且 SQL 会话已存在时，直接返回现有能力，避免重复 connect 拆掉刚建立的会话
+    // （前端竞态会重复调 connect → 拆/建窗口里其它元数据请求会报 not connected）。
+    if switching_db.is_none() {
+        if let Some(s) = state.conns.get(&conn_id) {
+            return Ok(s.caps.clone());
+        }
+    }
+
+    // 若已有会话（重连场景）：先关旧隧道 + 断开旧会话，避免泄漏。
+    if let Some(session) = state.conns.get(&conn_id) {
+        if let Some(tid) = &session.tunnel {
+            state.tunnels.close(tid);
+        }
+    }
+    state.conns.disconnect(&conn_id).await;
 
     // SSH 隧道：建立后用本地转发地址改写目标（TDD §5）。凭证从钥匙串取出，用后即弃。
     let mut tunnel_id: Option<String> = None;
@@ -399,6 +428,17 @@ pub async fn get_table_schema(
 }
 
 #[tauri::command]
+pub async fn get_table_options(
+    state: State<'_, AppState>,
+    conn_id: String,
+    table: TableRef,
+) -> R<TableOptions> {
+    let s = session(&state, &conn_id)?;
+    let a = s.adapter.lock().await;
+    a.table_options(&table).await
+}
+
+#[tauri::command]
 pub async fn get_table_ddl(
     state: State<'_, AppState>,
     conn_id: String,
@@ -473,8 +513,23 @@ pub async fn open_table_data(
     let returned = raw.rows.len() as u64;
     let editable = metadata::editability(&**a, &table).await?;
     let total_hint = query::count_table(&**a, &s.caps, &table, s.read_timeout).await;
+    // 标记主键列（原始查询元数据不含主键信息，从表结构补上以便前端显示 PK 图标）。
+    let mut columns = raw.columns;
+    if let Ok(schema) = a.table_schema(&table).await {
+        let pks: std::collections::HashSet<&str> = schema
+            .columns
+            .iter()
+            .filter(|c| c.is_primary_key)
+            .map(|c| c.name.as_str())
+            .collect();
+        for col in columns.iter_mut() {
+            if pks.contains(col.name.as_str()) {
+                col.is_primary_key = true;
+            }
+        }
+    }
     Ok(ResultSet {
-        columns: raw.columns,
+        columns,
         rows: raw.rows,
         total_hint,
         page: query::page_info(pg, returned),
@@ -753,49 +808,84 @@ pub async fn ai_chat(
         .collect();
     let result_ctx = input.result.as_ref().map(format_result_context);
 
-    // Redis 连接：走 KV 工具的 agent（database 字段承载逻辑库索引）。
-    if state.conns.get_redis(&input.conn_id).is_some() {
-        let db = input
-            .database
-            .as_deref()
-            .and_then(|s| s.trim().parse::<i64>().ok())
-            .unwrap_or(0);
-        return crate::ai::agent::run_turn_redis(
+    // 取消令牌：按 conn_id 登记；`ai_cancel` 触发后中止本次 agent。新请求覆盖旧令牌。
+    let token = tokio_util::sync::CancellationToken::new();
+    state.ai_cancels.insert(input.conn_id.clone(), token.clone());
+    let _guard = AiCancelGuard {
+        map: state.ai_cancels.clone(),
+        conn_id: input.conn_id.clone(),
+    };
+
+    // agent 执行（SQL / Redis 两条路径），整体置于可取消的 future 中。
+    let agent = async {
+        if state.conns.get_redis(&input.conn_id).is_some() {
+            let db = input
+                .database
+                .as_deref()
+                .and_then(|s| s.trim().parse::<i64>().ok())
+                .unwrap_or(0);
+            return crate::ai::agent::run_turn_redis(
+                provider.as_ref(),
+                &state.conns,
+                &state.proposals,
+                &input.conn_id,
+                db,
+                input.table,
+                history,
+                input.message,
+                result_ctx,
+            )
+            .await;
+        }
+
+        // SQL：切换会话当前库到所选库（MySQL 生效；PG/SQLite 无操作）。
+        {
+            let s = session(&state, &input.conn_id)?;
+            let mut a = s.adapter.lock().await;
+            a.use_database(input.database.clone()).await?;
+        }
+        let ctx = crate::ai::tools::ToolCtx {
+            database: input.database,
+            schema: input.schema,
+            table: input.table,
+        };
+        crate::ai::agent::run_turn(
             provider.as_ref(),
             &state.conns,
             &state.proposals,
             &input.conn_id,
-            db,
-            input.table,
+            ctx,
             history,
             input.message,
             result_ctx,
         )
-        .await;
-    }
-
-    // SQL：切换会话当前库到所选库（MySQL 生效；PG/SQLite 无操作）。
-    {
-        let s = session(&state, &input.conn_id)?;
-        let mut a = s.adapter.lock().await;
-        a.use_database(input.database.clone()).await?;
-    }
-    let ctx = crate::ai::tools::ToolCtx {
-        database: input.database,
-        schema: input.schema,
-        table: input.table,
+        .await
     };
-    crate::ai::agent::run_turn(
-        provider.as_ref(),
-        &state.conns,
-        &state.proposals,
-        &input.conn_id,
-        ctx,
-        history,
-        input.message,
-        result_ctx,
-    )
-    .await
+
+    // 取消时丢弃 agent future → 进行中的 provider HTTP 请求随之中止。
+    tokio::select! {
+        r = agent => r,
+        _ = token.cancelled() => Err(AppError::Internal("AI request cancelled".into())),
+    }
+}
+
+/// 守卫：`ai_chat` 结束（正常 / 取消 / 出错）时清理本连接的取消令牌。
+struct AiCancelGuard {
+    map: Arc<DashMap<String, tokio_util::sync::CancellationToken>>,
+    conn_id: String,
+}
+impl Drop for AiCancelGuard {
+    fn drop(&mut self) {
+        self.map.remove(&self.conn_id);
+    }
+}
+
+#[tauri::command]
+pub fn ai_cancel(state: State<'_, AppState>, conn_id: String) -> R<()> {
+    if let Some(tok) = state.ai_cancels.get(&conn_id) {
+        tok.cancel();
+    }
+    Ok(())
 }
 
 #[derive(serde::Deserialize)]

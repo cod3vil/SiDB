@@ -25,6 +25,8 @@ import type {
   Settings,
   TableInfo,
   TableRef,
+  TableSchema,
+  TableOptions,
 } from "./types";
 
 export const ipc = {
@@ -35,7 +37,8 @@ export const ipc = {
   deleteConnection: (id: string) => invoke<void>("delete_connection", { id }),
   testConnection: (input: ConnConfigInput) =>
     invoke<void>("test_connection", { input }),
-  connect: (connId: string) => invoke<DbCapabilities>("connect", { connId }),
+  connect: (connId: string, database?: string) =>
+    invoke<DbCapabilities>("connect", { connId, database: database ?? null }),
   disconnect: (connId: string) => invoke<void>("disconnect", { connId }),
 
   // 元数据（树懒加载）
@@ -50,7 +53,9 @@ export const ipc = {
   listColumns: (connId: string, table: TableRef) =>
     invoke<ColumnInfo[]>("list_columns", { connId, table }),
   getTableSchema: (connId: string, table: TableRef) =>
-    invoke("get_table_schema", { connId, table }),
+    invoke<TableSchema>("get_table_schema", { connId, table }),
+  getTableOptions: (connId: string, table: TableRef) =>
+    invoke<TableOptions>("get_table_options", { connId, table }),
   getTableDdl: (connId: string, table: TableRef) =>
     invoke<string>("get_table_ddl", { connId, table }),
   getFunctionDdl: (connId: string, routine: RoutineRef) =>
@@ -136,6 +141,7 @@ export const ipc = {
     base_url?: string | null;
   }) => invoke<void>("ai_test_provider", { input }),
   aiChat: (input: AiChatInput) => invoke<AiChatResult>("ai_chat", { input }),
+  aiCancel: (connId: string) => invoke<void>("ai_cancel", { connId }),
   aiConfirmWrite: (connId: string, proposalId: string) =>
     invoke<RunResult[]>("ai_confirm_write", { input: { conn_id: connId, proposal_id: proposalId } }),
 

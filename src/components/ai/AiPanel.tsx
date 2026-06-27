@@ -18,6 +18,8 @@ interface Props {
   table: string | null;
   /** 当前结果集快照：随提问发给 AI，使其能针对屏幕上的结果讨论。 */
   resultContext?: import("@/ipc/types").AiResultContext | null;
+  /** 移除已附带的结果上下文。 */
+  onClearResult?: () => void;
   onInsertSql: (sql: string) => void;
   onRunSql: (sql: string) => void;
   onConfirmWrite: (proposalId: string) => Promise<void>;
@@ -77,11 +79,12 @@ function Markdown({
   );
 }
 
-export function AiPanel({ width, connId, database, schema, table, resultContext, onInsertSql, onRunSql, onConfirmWrite, onClose }: Props) {
+export function AiPanel({ width, connId, database, schema, table, resultContext, onClearResult, onInsertSql, onRunSql, onConfirmWrite, onClose }: Props) {
   const { t } = useTranslation();
   const messages = useAi(activeMessages);
   const busy = useAi((s) => s.busy);
   const ask = useAi((s) => s.ask);
+  const cancel = useAi((s) => s.cancel);
   const conversations = useAi((s) => s.conversations);
   const activeId = useAi((s) => s.activeId);
   const newConversation = useAi((s) => s.newConversation);
@@ -175,12 +178,23 @@ export function AiPanel({ width, connId, database, schema, table, resultContext,
 
       <div className="shrink-0 border-t border-border p-2">
         {resultContext && resultContext.columns.length > 0 && (
-          <div className="mb-1.5 flex items-center gap-1.5 text-[10px] text-muted-foreground">
-            <i className="ri-table-line text-primary" />
-            {t("ai.resultAttached", {
-              cols: resultContext.columns.length,
-              rows: resultContext.rows.length,
-            })}
+          <div className="mb-1.5 flex items-center gap-1.5 rounded-md border border-border bg-muted/50 px-2 py-1 text-[11px] text-muted-foreground">
+            <i className="ri-table-line shrink-0 text-primary" />
+            <span className="min-w-0 flex-1 truncate">
+              {t("ai.resultAttached", {
+                cols: resultContext.columns.length,
+                rows: resultContext.rows.length,
+              })}
+            </span>
+            {onClearResult && (
+              <button
+                onClick={onClearResult}
+                title={t("ai.removeResult")}
+                className="flex h-4 w-4 shrink-0 items-center justify-center rounded hover:bg-accent hover:text-foreground"
+              >
+                <i className="ri-close-line" />
+              </button>
+            )}
           </div>
         )}
         <div className="flex items-end gap-1.5">
@@ -200,14 +214,24 @@ export function AiPanel({ width, connId, database, schema, table, resultContext,
             placeholder={t("ai.placeholder")}
             className="flex-1 resize-none rounded-md border border-border bg-muted px-2.5 py-1.5 text-xs text-foreground placeholder:text-muted-foreground/70 outline-none focus:border-primary"
           />
-          <button
-            onClick={() => void send()}
-            disabled={busy || !input.trim()}
-            title={t("ai.send")}
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-40"
-          >
-            <i className={cn("text-base", busy ? "ri-loader-4-line animate-spin" : "ri-send-plane-2-line")} />
-          </button>
+          {busy ? (
+            <button
+              onClick={cancel}
+              title={t("ai.stop")}
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              <i className="ri-stop-fill text-base" />
+            </button>
+          ) : (
+            <button
+              onClick={() => void send()}
+              disabled={!input.trim()}
+              title={t("ai.send")}
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-40"
+            >
+              <i className="ri-send-plane-2-line text-base" />
+            </button>
+          )}
         </div>
       </div>
 

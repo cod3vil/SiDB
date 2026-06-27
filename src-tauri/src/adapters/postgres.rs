@@ -204,9 +204,14 @@ impl DbAdapter for PostgresAdapter {
         if let Some(pw) = &target.password {
             opts = opts.password(pw);
         }
-        if let Some(db) = &target.database {
-            opts = opts.database(db);
-        }
+        // PG 一个连接绑定一个库；留空时默认连到始终存在的 `postgres`，以便列出全部库。
+        let db = target
+            .database
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .unwrap_or("postgres");
+        opts = opts.database(db);
         let pool = PgPoolOptions::new()
             .min_connections(0)
             .max_connections(5)
@@ -584,6 +589,28 @@ impl DbAdapter for PostgresAdapter {
             ));
         }
         Ok(ddl)
+    }
+
+    async fn table_options(&self, t: &TableRef) -> Result<TableOptions> {
+        // PG 无引擎/字符集概念；仅读表注释。
+        let schema = t.schema.as_deref().unwrap_or("public");
+        let row = sqlx::query(
+            "SELECT obj_description(c.oid) \
+             FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace \
+             WHERE c.relname = $1 AND n.nspname = $2",
+        )
+        .bind(&t.name)
+        .bind(schema)
+        .fetch_optional(self.pool()?)
+        .await
+        .map_err(AppError::from)?;
+        let comment = row
+            .and_then(|r| r.try_get::<Option<String>, _>(0).ok().flatten())
+            .filter(|c| !c.is_empty());
+        Ok(TableOptions {
+            comment,
+            ..Default::default()
+        })
     }
 
     async fn row_identifier(&self, t: &TableRef) -> Result<Option<Vec<String>>> {

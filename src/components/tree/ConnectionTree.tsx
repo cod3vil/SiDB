@@ -21,7 +21,7 @@ import type {
 import { useConnections } from "@/stores";
 import { toast } from "@/stores/toast";
 import { errorMessage } from "@/lib/error";
-import { quoteIdent } from "@/lib/sql";
+import { quoteIdent, qualifiedTable } from "@/lib/sql";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -744,8 +744,9 @@ function CapsChildren({
   depth: number;
   onOpenTable: (connId: string, table: TableRef) => void;
 }) {
+  // PG：一个连接只能绑定一个库 → 列出全部库，点开某库时重连到它再展示其 schema。
   if (caps.supports_schemas) {
-    return <SchemaList cfg={cfg} depth={depth} onOpenTable={onOpenTable} />;
+    return <PgDatabaseList cfg={cfg} depth={depth} onOpenTable={onOpenTable} />;
   }
   if (caps.supports_multi_database) {
     return <DatabaseList cfg={cfg} depth={depth} onOpenTable={onOpenTable} />;
@@ -808,9 +809,9 @@ function DatabaseList({
   );
 }
 
-// ---- schema 层（PG）-------------------------------------------------------
+// ---- 数据库层（PG）：列出全部库；展开某库前先重连到它 --------------------
 
-function SchemaList({
+function PgDatabaseList({
   cfg,
   depth,
   onOpenTable,
@@ -819,17 +820,110 @@ function SchemaList({
   depth: number;
   onOpenTable: (connId: string, table: TableRef) => void;
 }) {
+  const [dbs, setDbs] = useState<string[] | null>(null);
+  const treeVersion = useConnections((s) => s.treeVersion);
+  useEffect(() => {
+    ipc
+      .listDatabases(cfg.id)
+      .then((list) => setDbs(list.map((d) => d.name)))
+      .catch((e) => {
+        setDbs([]);
+        toast.error(errorMessage(e));
+      });
+  }, [cfg.id, treeVersion]);
+
+  if (dbs === null) return <Loading depth={depth} />;
+  return (
+    <>
+      {dbs.map((db) => (
+        <PgDatabaseNode key={db} cfg={cfg} db={db} depth={depth} onOpenTable={onOpenTable} />
+      ))}
+    </>
+  );
+}
+
+function PgDatabaseNode({
+  cfg,
+  db,
+  depth,
+  onOpenTable,
+}: {
+  cfg: ConnConfig;
+  db: string;
+  depth: number;
+  onOpenTable: (connId: string, table: TableRef) => void;
+}) {
+  const { onActivate, filter } = useContext(TreeCtx);
+  const [expanded, setExpanded] = useState(false);
+  const [ready, setReady] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  if (filter && !nameMatches(db, filter) && !expanded) return null;
+
+  const toggle = async () => {
+    if (expanded) {
+      setExpanded(false);
+      return;
+    }
+    setBusy(true);
+    try {
+      // PG 切库 = 重连到该库（同一时刻连接只在一个库）。
+      await ipc.connect(cfg.id, db);
+      onActivate(cfg.id, db, null); // 联动工具栏 / 让查询 tab 用该库
+      setReady(true);
+      setExpanded(true);
+    } catch (e) {
+      toast.error(errorMessage(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div>
+      <Row
+        depth={depth}
+        hasChevron
+        expanded={expanded}
+        icon="ri-database-2-line"
+        label={db}
+        title={db}
+        onClick={toggle}
+        trailing={busy ? <i className="ri-loader-4-line animate-spin text-xs text-muted-foreground" /> : undefined}
+      />
+      {expanded && ready && (
+        <SchemaList cfg={cfg} database={db} depth={depth + 1} onOpenTable={onOpenTable} />
+      )}
+    </div>
+  );
+}
+
+// ---- schema 层（PG）-------------------------------------------------------
+
+function SchemaList({
+  cfg,
+  database,
+  depth,
+  onOpenTable,
+}: {
+  cfg: ConnConfig;
+  /** 当前展示的库（PG 多库：由上层选定并已重连到它）。 */
+  database?: string;
+  depth: number;
+  onOpenTable: (connId: string, table: TableRef) => void;
+}) {
+  const db = database ?? cfg.database ?? "";
   const [schemas, setSchemas] = useState<string[] | null>(null);
   const treeVersion = useConnections((s) => s.treeVersion);
   useEffect(() => {
     ipc
-      .listSchemas(cfg.id, cfg.database ?? "")
+      .listSchemas(cfg.id, db)
       .then(setSchemas)
       .catch((e) => {
         setSchemas([]);
         toast.error(errorMessage(e));
       });
-  }, [cfg.id, cfg.database, treeVersion]);
+  }, [cfg.id, db, treeVersion]);
 
   if (schemas === null) return <Loading depth={depth} />;
   return (
@@ -841,9 +935,9 @@ function SchemaList({
           label={s}
           depth={depth}
           connId={cfg.id}
-          listDatabase={cfg.database ?? ""}
+          listDatabase={db}
           listSchema={s}
-          refDatabase={cfg.database}
+          refDatabase={db}
           refSchema={s}
           onOpenTable={onOpenTable}
         />
@@ -1308,6 +1402,46 @@ function TableItem({
   const { t } = useTranslation();
   const { onShowDdl, onEditTable, onExportStructure } = useContext(TreeCtx);
   const exportTarget = { table, isView, database: table.database ?? null, schema: table.schema ?? null };
+  const bumpTree = useConnections((s) => s.bumpTree);
+  const quoteChar = useConnections((s) => s.connected[connId]?.quote_char) ?? '"';
+  const kind = useConnections((s) => s.configs.find((c) => c.id === connId)?.kind) ?? "mysql";
+  const isSqlite = kind === "sqlite";
+
+  // 待确认的破坏性操作 / 命名操作（重命名 / 复制）。
+  const [confirm, setConfirm] = useState<{ op: "drop" | "empty" | "truncate"; sql: string; msg: string } | null>(null);
+  const [nameOp, setNameOp] = useState<{ op: "rename" | "copy" } | null>(null);
+
+  const qt = qualifiedTable(quoteChar, table.database ?? null, table.schema ?? null, table.name);
+  const newQt = (name: string) =>
+    qualifiedTable(quoteChar, table.database ?? null, table.schema ?? null, name);
+
+  const run = async (sql: string) => {
+    try {
+      await ipc.runSql(connId, "ddl", sql, 0, 1, null);
+      bumpTree();
+    } catch (e) {
+      toast.error(errorMessage(e));
+    }
+  };
+
+  // 重命名 / 复制：生成方言 SQL。
+  const doName = async (newName: string) => {
+    const op = nameOp?.op;
+    setNameOp(null);
+    const nm = newName.trim();
+    if (!nm || !op) return;
+    if (op === "rename") {
+      await run(`ALTER TABLE ${qt} RENAME TO ${quoteIdent(nm, quoteChar)};`);
+    } else {
+      // 复制：建同构表 + 拷数据。
+      let sql: string;
+      if (kind === "mysql") sql = `CREATE TABLE ${newQt(nm)} LIKE ${qt};\nINSERT INTO ${newQt(nm)} SELECT * FROM ${qt};`;
+      else if (kind === "postgres") sql = `CREATE TABLE ${newQt(nm)} (LIKE ${qt} INCLUDING ALL);\nINSERT INTO ${newQt(nm)} SELECT * FROM ${qt};`;
+      else sql = `CREATE TABLE ${newQt(nm)} AS SELECT * FROM ${qt};`; // sqlite：丢失约束
+      await run(sql);
+    }
+  };
+
   return (
     <ContextMenu>
       <ContextMenuTrigger asChild>
@@ -1334,6 +1468,31 @@ function TableItem({
             {t("tree.editTable")}
           </ContextMenuItem>
         )}
+        {!isView && (
+          <>
+            <ContextMenuSeparator />
+            <ContextMenuItem icon="ri-input-method-line" onClick={() => setNameOp({ op: "rename" })}>
+              {t("tree.renameTable")}
+            </ContextMenuItem>
+            <ContextMenuItem icon="ri-file-copy-2-line" onClick={() => setNameOp({ op: "copy" })}>
+              {t("tree.copyTable")}
+            </ContextMenuItem>
+            <ContextMenuItem
+              icon="ri-eraser-line"
+              onClick={() => setConfirm({ op: "empty", sql: `DELETE FROM ${qt};`, msg: t("tree.emptyConfirm", { name: table.name }) })}
+            >
+              {t("tree.emptyTable")}
+            </ContextMenuItem>
+            {!isSqlite && (
+              <ContextMenuItem
+                icon="ri-flashlight-line"
+                onClick={() => setConfirm({ op: "truncate", sql: `TRUNCATE TABLE ${qt};`, msg: t("tree.truncateConfirm", { name: table.name }) })}
+              >
+                {t("tree.truncateTable")}
+              </ContextMenuItem>
+            )}
+          </>
+        )}
         <ContextMenuSeparator />
         <ContextMenuItem icon="ri-file-code-line" onClick={() => onExportStructure(connId, exportTarget, false)}>
           {t("tree.exportStructure")}
@@ -1345,8 +1504,89 @@ function TableItem({
         <ContextMenuItem icon="ri-file-copy-line" onClick={() => copyText(table.name)}>
           {t("tree.copyName")}
         </ContextMenuItem>
+        <ContextMenuSeparator />
+        <ContextMenuItem
+          icon="ri-delete-bin-line"
+          destructive
+          onClick={() =>
+            setConfirm({
+              op: "drop",
+              sql: `DROP ${isView ? "VIEW" : "TABLE"} ${qt};`,
+              msg: t("tree.dropTableConfirm", { name: table.name }),
+            })
+          }
+        >
+          {isView ? t("tree.dropView") : t("tree.dropTable")}
+        </ContextMenuItem>
       </ContextMenuContent>
+      {confirm && (
+        <ConfirmDialog
+          danger
+          message={confirm.msg}
+          onCancel={() => setConfirm(null)}
+          onConfirm={() => {
+            const sql = confirm.sql;
+            setConfirm(null);
+            void run(sql);
+          }}
+        />
+      )}
+      {nameOp && (
+        <NameDialog
+          title={nameOp.op === "rename" ? t("tree.renameTable") : t("tree.copyTable")}
+          initial={nameOp.op === "copy" ? `${table.name}_copy` : table.name}
+          confirmLabel={nameOp.op === "rename" ? t("tree.renameTable") : t("tree.copyTable")}
+          onCancel={() => setNameOp(null)}
+          onConfirm={doName}
+        />
+      )}
     </ContextMenu>
+  );
+}
+
+/** 通用命名输入弹窗（重命名 / 复制表用）。 */
+function NameDialog({
+  title,
+  initial,
+  confirmLabel,
+  onCancel,
+  onConfirm,
+}: {
+  title: string;
+  initial: string;
+  confirmLabel: string;
+  onCancel: () => void;
+  onConfirm: (name: string) => void;
+}) {
+  const { t } = useTranslation();
+  const [name, setName] = useState(initial);
+  return (
+    <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={onCancel}>
+      <div className="w-[340px] overflow-hidden rounded-xl border border-border bg-card shadow-2xl" onClick={(e) => e.stopPropagation()}>
+        <div className="border-b border-border px-5 py-3">
+          <h2 className="text-sm font-semibold text-foreground">{title}</h2>
+        </div>
+        <div className="px-5 py-4">
+          <Input
+            autoFocus
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && name.trim()) onConfirm(name);
+              else if (e.key === "Escape") onCancel();
+            }}
+          />
+        </div>
+        <div className="flex justify-end gap-2 border-t border-border px-5 py-3">
+          <Button variant="secondary" onClick={onCancel}>
+            {t("common.cancel")}
+          </Button>
+          <Button onClick={() => name.trim() && onConfirm(name)} disabled={!name.trim()}>
+            {confirmLabel}
+          </Button>
+        </div>
+      </div>
+    </div>
   );
 }
 

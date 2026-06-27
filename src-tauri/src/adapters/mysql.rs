@@ -630,6 +630,39 @@ impl DbAdapter for MySqlAdapter {
         Ok(string_via_bytes(&row, 1))
     }
 
+    async fn table_options(&self, t: &TableRef) -> Result<TableOptions> {
+        let db = t
+            .database
+            .as_deref()
+            .ok_or_else(|| AppError::Internal("mysql table requires database".into()))?;
+        let row = sqlx::query(
+            "SELECT engine, table_collation, table_comment \
+             FROM information_schema.tables WHERE table_schema = ? AND table_name = ?",
+        )
+        .bind(db)
+        .bind(&t.name)
+        .fetch_optional(self.pool()?)
+        .await
+        .map_err(AppError::from)?;
+        let Some(row) = row else {
+            return Ok(TableOptions::default());
+        };
+        let engine = opt_string_via_bytes(&row, 0);
+        let collation = opt_string_via_bytes(&row, 1);
+        // 字符集 = collation 的首段（如 utf8mb4_general_ci → utf8mb4）。
+        let charset = collation
+            .as_deref()
+            .and_then(|c| c.split('_').next())
+            .map(|s| s.to_string());
+        let comment = opt_string_via_bytes(&row, 2).filter(|c| !c.is_empty());
+        Ok(TableOptions {
+            engine,
+            charset,
+            collation,
+            comment,
+        })
+    }
+
     async fn row_identifier(&self, t: &TableRef) -> Result<Option<Vec<String>>> {
         let schema = self.table_schema(t).await?;
         // 1) 主键

@@ -44,6 +44,10 @@ interface AiState {
   conversations: Conversation[];
   /** 当前会话 id；null 表示「新对话」草稿（尚未产生消息）。 */
   activeId: string | null;
+  /** 在途请求的连接 id（取消时用）；不持久化。 */
+  _reqConn: string | null;
+  /** 本次请求是否已被用户取消；不持久化。 */
+  _cancelled: boolean;
   setOpen: (open: boolean) => void;
   toggle: () => void;
   /** 新开一个空对话（保留历史，仅切到草稿态）。 */
@@ -56,6 +60,8 @@ interface AiState {
   clearConversations: () => void;
   /** 发送一条消息（面板输入框 / 内联动作共用）。无连接时静默忽略，由调用方先校验。 */
   ask: (ctx: AskCtx, message: string) => Promise<void>;
+  /** 中止进行中的 AI 请求。 */
+  cancel: () => void;
 }
 
 /** 稳定的空数组引用：避免 useSyncExternalStore 因每次新建 `[]` 而反复触发渲染。 */
@@ -84,6 +90,8 @@ export const useAi = create<AiState>()(
       busy: false,
       conversations: [],
       activeId: null,
+      _reqConn: null,
+      _cancelled: false,
       setOpen: (open) => set({ open }),
       toggle: () => set((s) => ({ open: !s.open })),
       newConversation: () =>
@@ -136,7 +144,8 @@ export const useAi = create<AiState>()(
           { role: "user", text: message },
           { role: "assistant", text: "", pending: true },
         ]);
-        set({ busy: true });
+        // 记录在途连接 + 重置取消标记（供 cancel 调用后端并抑制取消引发的错误提示）。
+        set({ busy: true, _reqConn: ctx.connId ?? "", _cancelled: false });
 
         const patchLast = (patch: Partial<ChatTurn>) =>
           patchMessages((ms) => {
@@ -156,13 +165,28 @@ export const useAi = create<AiState>()(
             message,
             result: ctx.result ?? null,
           });
-          patchLast({ text: res.reply, steps: res.steps, proposals: res.proposals, pending: false });
+          if (get()._cancelled) {
+            // 已取消：丢弃迟到的结果，移除 pending 占位气泡。
+            patchMessages((ms) => ms.filter((m) => !m.pending));
+          } else {
+            patchLast({ text: res.reply, steps: res.steps, proposals: res.proposals, pending: false });
+          }
         } catch (e) {
-          patchLast({ text: "", pending: false });
-          toast.error(errorMessage(e));
+          if (get()._cancelled) {
+            patchMessages((ms) => ms.filter((m) => !m.pending));
+          } else {
+            patchLast({ text: "", pending: false });
+            toast.error(errorMessage(e));
+          }
         } finally {
-          set({ busy: false });
+          set({ busy: false, _reqConn: null });
         }
+      },
+      cancel: () => {
+        const conn = get()._reqConn;
+        if (!get().busy || !conn) return;
+        set({ _cancelled: true, busy: false });
+        void ipc.aiCancel(conn).catch(() => undefined);
       },
     }),
     {

@@ -251,6 +251,19 @@ pub struct TableSchema {
     pub foreign_keys: Vec<ForeignKeyInfo>,
 }
 
+/// 表级选项 / 注释。各方言按支持程度填充（不支持的字段为 None）。
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct TableOptions {
+    /// MySQL 存储引擎（InnoDB / MyISAM …）。
+    pub engine: Option<String>,
+    /// 默认字符集（MySQL）。
+    pub charset: Option<String>,
+    /// 排序规则（MySQL）。
+    pub collation: Option<String>,
+    /// 表注释（MySQL / PostgreSQL）。
+    pub comment: Option<String>,
+}
+
 // ---------------------------------------------------------------------------
 // 连接目标 / 数据库类型
 // ---------------------------------------------------------------------------

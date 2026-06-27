@@ -18,13 +18,17 @@ interface Props {
   onExport?: () => void;
   /** 点击「问 AI」：把当前结果集喂给 AI 侧栏讨论。 */
   onAskAi?: () => void;
+  /** 表浏览快捷排序：当前排序列 / 方向 + 点列头回调（仅浏览模式提供，服务端重查）。 */
+  sortColumn?: string | null;
+  sortAsc?: boolean;
+  onSort?: (col: string) => void;
 }
 
 const ROW_HEIGHT = 28;
 const DEFAULT_W = 160;
 const MIN_W = 56;
 
-export function ResultGrid({ result, onGoto, table, onCommit, onExport, onAskAi }: Props) {
+export function ResultGrid({ result, onGoto, table, onCommit, onExport, onAskAi, sortColumn, sortAsc, onSort }: Props) {
   const { t } = useTranslation();
   const parentRef = useRef<HTMLDivElement>(null);
 
@@ -235,20 +239,30 @@ export function ResultGrid({ result, onGoto, table, onCommit, onExport, onAskAi 
           className="flex sticky top-0 z-10 bg-muted text-xs font-semibold text-foreground"
           style={{ height: ROW_HEIGHT, width: totalWidth }}
         >
-          {result.columns.map((c, i) => (
+          {result.columns.map((c, i) => {
+            const sorted = sortColumn === c.name;
+            return (
             <div
               key={c.name}
-              className="relative flex items-center border-r border-border px-2 whitespace-nowrap"
+              className={cn(
+                "relative flex items-center gap-1 border-r border-border px-2 whitespace-nowrap",
+                onSort && "cursor-pointer select-none hover:bg-accent/60",
+              )}
               style={{ width: widthOf(i) }}
               title={`${c.db_type}${c.is_primary_key ? " (PK)" : ""}`}
+              onClick={onSort ? () => onSort(c.name) : undefined}
             >
-              <span className="truncate">
-                {c.is_primary_key ? "🔑 " : ""}
-                {c.name}
-              </span>
-              {/* 拖拽手柄 */}
+              {c.is_primary_key && (
+                <i className="ri-key-2-fill shrink-0 text-[12px] text-amber-500" title="PRIMARY KEY" />
+              )}
+              <span className="truncate">{c.name}</span>
+              {sorted && (
+                <i className={cn("shrink-0 text-[12px] text-primary", sortAsc ? "ri-arrow-up-s-line" : "ri-arrow-down-s-line")} />
+              )}
+              {/* 拖拽手柄（阻止冒泡，避免触发列头排序） */}
               <span
                 onMouseDown={(e) => startResize(i, e)}
+                onClick={(e) => e.stopPropagation()}
                 onDoubleClick={(e) => {
                   e.stopPropagation();
                   setWidths((prev) => {
@@ -257,11 +271,12 @@ export function ResultGrid({ result, onGoto, table, onCommit, onExport, onAskAi 
                     return next;
                   });
                 }}
-                className="absolute right-0 top-0 h-full w-1.5 translate-x-1/2 cursor-col-resize hover:bg-emerald-500/60"
+                className="absolute right-0 top-0 h-full w-1.5 translate-x-1/2 cursor-col-resize hover:bg-primary/60"
                 title={t("grid.resizeHint")}
               />
             </div>
-          ))}
+            );
+          })}
         </div>
         {/* virtual rows */}
         <div style={{ height: rowVirtualizer.getTotalSize(), width: totalWidth, position: "relative" }}>
