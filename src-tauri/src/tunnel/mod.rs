@@ -37,6 +37,8 @@ struct TunnelHandle {
     /// 通知后台任务退出。
     shutdown: tokio::sync::watch::Sender<bool>,
     local_addr: SocketAddr,
+    /// 最近一次转发失败原因（direct-tcpip 打开失败 / 转发中断），用于在 DB 连接失败时透传给前端。
+    last_error: Arc<std::sync::Mutex<Option<String>>>,
 }
 
 #[derive(Default)]
@@ -109,6 +111,8 @@ impl TunnelManager {
         let session = Arc::new(session);
         let remote_host = spec.remote_host.clone();
         let remote_port = spec.remote_port;
+        let last_error = Arc::new(std::sync::Mutex::new(None::<String>));
+        let err_slot = last_error.clone();
 
         // 后台转发任务
         tokio::spawn(async move {
@@ -122,18 +126,23 @@ impl TunnelManager {
                         let Ok((mut socket, _peer)) = accept else { continue };
                         let session = session.clone();
                         let rhost = remote_host.clone();
+                        let err_slot = err_slot.clone();
                         tokio::spawn(async move {
                             let channel = match session
-                                .channel_open_direct_tcpip(rhost, remote_port as u32, "127.0.0.1", 0)
+                                .channel_open_direct_tcpip(rhost.clone(), remote_port as u32, "127.0.0.1", 0)
                                 .await
                             {
                                 Ok(c) => c,
                                 Err(e) => {
-                                    tracing::warn!("direct-tcpip open failed: {e}");
+                                    let msg = format!("无法连到 {rhost}:{remote_port}：{e}");
+                                    tracing::warn!("direct-tcpip open failed: {msg}");
+                                    *err_slot.lock().unwrap() = Some(msg);
                                     return;
                                 }
                             };
-                            forward(&mut socket, channel).await;
+                            if let Some(e) = forward(&mut socket, channel).await {
+                                *err_slot.lock().unwrap() = Some(format!("转发 {rhost}:{remote_port} 中断：{e}"));
+                            }
                         });
                     }
                 }
@@ -146,6 +155,7 @@ impl TunnelManager {
             TunnelHandle {
                 shutdown: shutdown_tx,
                 local_addr,
+                last_error,
             },
         );
         Ok((id, local_addr))
@@ -160,15 +170,29 @@ impl TunnelManager {
     pub fn local_addr(&self, id: &str) -> Option<SocketAddr> {
         self.tunnels.get(id).map(|h| h.local_addr)
     }
+
+    /// 最近一次转发失败原因（用于 DB 连接失败时透传隧道层细节）。
+    pub fn last_error(&self, id: &str) -> Option<String> {
+        self.tunnels
+            .get(id)
+            .and_then(|h| h.last_error.lock().ok().and_then(|g| g.clone()))
+    }
 }
 
-/// 在本地 TCP 套接字与 SSH channel 间双向拷贝。
+/// 在本地 TCP 套接字与 SSH channel 间双向拷贝。返回 `Some(错误)` 表示异常中断。
 ///
 /// russh 的 `Channel` 提供 `into_stream()`（实现 AsyncRead + AsyncWrite），
 /// 直接用 `copy_bidirectional` 即可，避免手工 select 造成的并发借用问题。
-async fn forward(socket: &mut tokio::net::TcpStream, channel: russh::Channel<russh::client::Msg>) {
+async fn forward(
+    socket: &mut tokio::net::TcpStream,
+    channel: russh::Channel<russh::client::Msg>,
+) -> Option<String> {
     let mut stream = channel.into_stream();
-    if let Err(e) = tokio::io::copy_bidirectional(socket, &mut stream).await {
-        tracing::debug!("tunnel forward closed: {e}");
+    match tokio::io::copy_bidirectional(socket, &mut stream).await {
+        Err(e) => {
+            tracing::debug!("tunnel forward closed: {e}");
+            Some(e.to_string())
+        }
+        Ok(_) => None,
     }
 }

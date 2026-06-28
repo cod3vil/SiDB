@@ -122,14 +122,28 @@ pub async fn test_connection(state: State<'_, AppState>, input: ConnConfigInput)
     let mut host = input.host.clone().unwrap_or_else(|| "127.0.0.1".into());
     let mut port = input.port.unwrap_or(connection::default_port(input.kind));
 
+    // 编辑既有连接时凭证留空 = 沿用钥匙串里已存的（与保存逻辑一致，避免用空密码去测试）。
+    let stored = |key_of: fn(&str) -> String| -> Option<String> {
+        input
+            .id
+            .as_deref()
+            .and_then(|id| state.cred.get(&key_of(id)).ok().flatten())
+    };
+    let password = input.password.clone().or_else(|| stored(keys::conn_password));
+    let ssh_password = input.ssh_password.clone().or_else(|| stored(keys::conn_ssh_password));
+    let ssh_passphrase = input
+        .ssh_passphrase
+        .clone()
+        .or_else(|| stored(keys::conn_ssh_passphrase));
+
     // 含 SSH 时先建隧道，把数据库目标改写到本地转发地址（凭证用 input 明文，测试不落盘）。
     let mut tunnel_id: Option<String> = None;
     if let (Some(ssh), false) = (&input.ssh, matches!(input.kind, DbKind::Sqlite)) {
         let (id, addr) = open_tunnel(
             &state.tunnels,
             ssh,
-            input.ssh_password.clone(),
-            input.ssh_passphrase.clone(),
+            ssh_password.clone(),
+            ssh_passphrase.clone(),
             host.clone(),
             port,
         )
@@ -144,7 +158,7 @@ pub async fn test_connection(state: State<'_, AppState>, input: ConnConfigInput)
         host,
         port,
         user: input.user.clone().unwrap_or_default(),
-        password: input.password.clone(),
+        password: password.clone(),
         database: input.database.clone(),
         schema: input.schema.clone(),
         ssl_mode: input.ssl_mode.unwrap_or(SslMode::Prefer),
@@ -169,6 +183,11 @@ pub async fn test_connection(state: State<'_, AppState>, input: ConnConfigInput)
         .await;
         adapter.disconnect().await;
         r
+    };
+    // 失败时透传隧道层真实原因，再回收隧道。
+    let result = match result {
+        Ok(()) => Ok(()),
+        Err(e) => Err(augment_with_tunnel(&state, tunnel_id.as_deref(), e)),
     };
     if let Some(id) = tunnel_id {
         state.tunnels.close(&id);
@@ -236,13 +255,22 @@ pub async fn connect(
     {
         Ok(caps) => Ok(caps),
         Err(e) => {
-            // 连接失败时回收隧道。
+            // 连接失败时：若经隧道，透传隧道层真实原因（如目标不可达 / 被拒），再回收隧道。
+            let e = augment_with_tunnel(&state, tunnel_id.as_deref(), e);
             if let Some(id) = tunnel_id {
                 state.tunnels.close(&id);
             }
             Err(e)
         }
     }
+}
+
+/// 经 SSH 隧道连接失败时，把隧道层的真实错误拼进报错（数据库驱动只会报「0 bytes at EOF」之类）。
+fn augment_with_tunnel(state: &AppState, tunnel_id: Option<&str>, e: AppError) -> AppError {
+    if let Some(detail) = tunnel_id.and_then(|id| state.tunnels.last_error(id)) {
+        return AppError::Network(format!("{e}\nSSH 隧道：{detail}"));
+    }
+    e
 }
 
 #[tauri::command]
