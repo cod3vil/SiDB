@@ -170,12 +170,14 @@ pub fn simple_select_table(sql: &str, caps: &DbCapabilities) -> Option<TableRef>
 
 /// 执行一段脚本（可能多语句），返回每条语句的结果。
 /// `query_id_prefix` 用于取消登记（每条语句拼 `:idx`）。`ctx_database` 为编辑器当前库。
+#[allow(clippy::too_many_arguments)]
 pub async fn run_script(
     adapter: &dyn DbAdapter,
     query_id_prefix: &str,
     script: &str,
     page: Page,
     ctx_database: Option<&str>,
+    ctx_schema: Option<&str>,
     read_timeout: Option<Duration>,
     write_timeout: Option<Duration>,
 ) -> Result<Vec<RunOutcome>> {
@@ -187,9 +189,9 @@ pub async fn run_script(
         let started = std::time::Instant::now();
         if is_result_producing(&kw) {
             let wrapped = wrap_pagination(stmt, page);
-            let raw = with_timeout(read_timeout, adapter.query(&qid, &wrapped, &[])).await?;
+            let mut raw = with_timeout(read_timeout, adapter.query(&qid, &wrapped, &[])).await?;
             let returned = raw.rows.len() as u64;
-            // 简单单表 SELECT *：解析出表并判定可编辑性，让结果可改。
+            // 简单单表 SELECT *：解析出表 → 标记主键列（结果元数据不含主键）+ 判定可编辑性。
             let mut editable = Editability::ReadOnly {
                 reason: "custom-query".into(),
             };
@@ -197,6 +199,25 @@ pub async fn run_script(
             if let Some(mut t) = simple_select_table(stmt, adapter.capabilities()) {
                 if t.database.is_none() {
                     t.database = ctx_database.map(|s| s.to_string());
+                }
+                if t.schema.is_none() {
+                    t.schema = ctx_schema.map(|s| s.to_string());
+                }
+                // 用表结构补主键标记，让结果集列头显示主键图标。
+                if let Ok(schema) = adapter.table_schema(&t).await {
+                    let pks: std::collections::HashSet<&str> = schema
+                        .columns
+                        .iter()
+                        .filter(|c| c.is_primary_key)
+                        .map(|c| c.name.as_str())
+                        .collect();
+                    if !pks.is_empty() {
+                        for col in raw.columns.iter_mut() {
+                            if pks.contains(col.name.as_str()) {
+                                col.is_primary_key = true;
+                            }
+                        }
+                    }
                 }
                 if let Ok(ed @ Editability::Editable { .. }) =
                     crate::services::metadata::editability(adapter, &t).await

@@ -64,14 +64,6 @@ export function TopBar(p: Props) {
           options={p.schemas.map((s) => ({ value: s, label: s }))}
         />
       )}
-      <Picker
-        icon="ri-table-line"
-        value={p.activeTable ?? undefined}
-        onChange={p.onSelectTable}
-        placeholder={t("toolbar.selectTable")}
-        options={p.tables.map((n) => ({ value: n, label: n }))}
-        disabled={p.tables.length === 0}
-      />
 
       <div className="ml-auto flex items-center gap-1">
         <Button

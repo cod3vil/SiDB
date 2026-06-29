@@ -1,7 +1,7 @@
 {
   "name": "sidb",
   "private": true,
-  "version": "1.2.4",
+  "version": "1.2.5",
   "type": "module",
   "description": "轻量级跨平台数据库客户端 (Tauri 2 + Rust + React)",
   "scripts": {

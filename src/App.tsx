@@ -580,6 +580,7 @@ export default function App() {
         0,
         PAGE_SIZE,
         connected[tab.connId]?.supports_use_database ? tab.db : null,
+        tab.schema,
       );
       updateTab(tabId, { results, activeResult: 0, running: false });
       return true;
@@ -644,6 +645,7 @@ export default function App() {
         0,
         PAGE_SIZE,
         connected[tab.connId]?.supports_use_database ? tab.db : null,
+        tab.schema,
       );
       updateTab(tabId, { results, activeResult: 0, running: false });
     } catch (e) {

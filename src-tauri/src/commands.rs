@@ -589,12 +589,15 @@ pub async fn run_sql(
     page: u64,
     page_size: u64,
     database: Option<String>,
+    schema: Option<String>,
 ) -> R<Vec<RunResult>> {
     let s = session(&state, &conn_id)?;
     let mut a = s.adapter.lock().await;
-    // 编辑器选定的当前库（仅 MySQL 等支持会话切换的方言生效；其余为无操作）。
+    // 编辑器选定的当前库 / schema（库仅 MySQL 等生效；schema 仅 PG 设 search_path，其余无操作）。
     let ctx_db = database.clone();
+    let ctx_schema = schema.clone();
     a.use_database(database).await?;
+    a.use_schema(schema).await?;
     let pg = Page { page, page_size };
     let outcomes = query::run_script(
         &**a,
@@ -602,6 +605,7 @@ pub async fn run_sql(
         &sql,
         pg,
         ctx_db.as_deref(),
+        ctx_schema.as_deref(),
         s.read_timeout,
         s.write_timeout,
     )
@@ -958,6 +962,7 @@ pub async fn ai_confirm_write(
         "ai_write",
         &p.sql,
         pg,
+        None,
         None,
         s.read_timeout,
         s.write_timeout,

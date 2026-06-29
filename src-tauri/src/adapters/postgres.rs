@@ -18,6 +18,8 @@ pub struct PostgresAdapter {
     pool: Option<sqlx::PgPool>,
     backends: DashMap<String, i32>,
     opts: Option<PgConnectOptions>,
+    /// 当前 schema（连接配置默认 + 工具栏可切换）：用户手写 SQL 的未限定表名据此设 search_path。
+    schema: std::sync::Mutex<Option<String>>,
 }
 
 impl PostgresAdapter {
@@ -36,6 +38,7 @@ impl PostgresAdapter {
             pool: None,
             backends: DashMap::new(),
             opts: None,
+            schema: std::sync::Mutex::new(None),
         }
     }
 
@@ -43,6 +46,19 @@ impl PostgresAdapter {
         self.pool
             .as_ref()
             .ok_or_else(|| AppError::Internal("pg pool not connected".into()))
+    }
+
+    /// 在给定连接上把 search_path 设为当前 schema（让手写 SQL 的未限定表名命中所选 schema）。
+    /// schema 为空则跳过（沿用服务端默认 `"$user", public`）。
+    async fn apply_search_path(&self, conn: &mut sqlx::PgConnection) -> Result<()> {
+        let schema = self.schema.lock().ok().and_then(|g| g.clone());
+        if let Some(s) = schema.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+            let stmt = format!("SET search_path TO \"{}\", public", s.replace('"', "\"\""));
+            sqlx::Executor::execute(conn, stmt.as_str())
+                .await
+                .map_err(AppError::from)?;
+        }
+        Ok(())
     }
 }
 
@@ -236,6 +252,13 @@ impl DbAdapter for PostgresAdapter {
             .await
             .map_err(AppError::from)?;
         self.pool = Some(pool);
+        // 初始 schema 取连接配置；运行时可由工具栏经 use_schema 覆盖。search_path 在每次 query/execute 时按它设置。
+        *self.schema.lock().unwrap() = target
+            .schema
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(|s| s.to_string());
         self.opts = Some(opts);
         Ok(())
     }
@@ -255,6 +278,7 @@ impl DbAdapter for PostgresAdapter {
     async fn query(&self, query_id: &str, sql: &str, params: &[Value]) -> Result<RawResultSet> {
         let pool = self.pool()?;
         let mut conn = pool.acquire().await.map_err(AppError::from)?;
+        self.apply_search_path(&mut conn).await?;
         let pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
             .fetch_one(&mut *conn)
             .await
@@ -297,14 +321,25 @@ impl DbAdapter for PostgresAdapter {
     }
 
     async fn execute(&self, _query_id: &str, sql: &str, params: &[Value]) -> Result<ExecResult> {
+        // 在同一连接上先设 search_path，再执行（让未限定的写语句也命中所选 schema）。
+        let mut conn = self.pool()?.acquire().await.map_err(AppError::from)?;
+        self.apply_search_path(&mut conn).await?;
         let res = bind_params(sqlx::query(sql), params)
-            .execute(self.pool()?)
+            .execute(&mut *conn)
             .await
             .map_err(AppError::from)?;
         Ok(ExecResult {
             affected_rows: res.rows_affected(),
             last_insert_id: None,
         })
+    }
+
+    async fn use_schema(&mut self, schema: Option<String>) -> Result<()> {
+        // 工具栏切换 schema：更新当前 schema（仅在用户显式选择时覆盖，留空则保持连接默认）。
+        if let Some(s) = schema.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+            *self.schema.lock().unwrap() = Some(s.to_string());
+        }
+        Ok(())
     }
 
     async fn cancel(&self, query_id: &str) -> Result<()> {

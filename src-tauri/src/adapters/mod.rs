@@ -80,6 +80,11 @@ pub trait DbAdapter: Send + Sync {
         Ok(())
     }
 
+    /// 切换后续未限定查询所在的 schema（仅 PG：设 `search_path`）。默认无操作。
+    async fn use_schema(&mut self, _schema: Option<String>) -> Result<()> {
+        Ok(())
+    }
+
     /// 事务化批量执行（数据编辑提交用）。任一失败全部回滚。
     async fn execute_in_transaction(
         &self,

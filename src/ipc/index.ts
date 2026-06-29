@@ -114,7 +114,8 @@ export const ipc = {
     page: number,
     pageSize: number,
     database?: string | null,
-  ) => invoke<RunResult[]>("run_sql", { connId, tabId, sql, page, pageSize, database }),
+    schema?: string | null,
+  ) => invoke<RunResult[]>("run_sql", { connId, tabId, sql, page, pageSize, database, schema: schema ?? null }),
   cancelQuery: (connId: string, queryId: string) =>
     invoke<void>("cancel_query", { connId, queryId }),
 
