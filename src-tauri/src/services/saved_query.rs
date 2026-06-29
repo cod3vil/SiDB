@@ -47,6 +47,11 @@ fn save_all(list: &[SavedQuery]) -> Result<()> {
     Ok(())
 }
 
+/// 整体覆盖（配置导入用）。
+pub fn replace_all(list: &[SavedQuery]) -> Result<()> {
+    save_all(list)
+}
+
 pub fn save(input: SavedQueryInput) -> Result<SavedQuery> {
     let id = input.id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
     let q = SavedQuery {

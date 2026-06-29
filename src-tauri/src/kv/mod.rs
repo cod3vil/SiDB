@@ -158,7 +158,18 @@ impl RedisAdapter {
         };
         let client =
             redis::Client::open(ConnectionInfo { addr, redis }).map_err(map_err)?;
-        let mgr = ConnectionManager::new(client).await.map_err(map_err)?;
+        // 套上连接超时 + 减少内部重试，避免连不上时一直「连接中」（默认会重试 + TCP 卡到系统超时）。
+        let secs = target.connect_timeout_secs.max(1);
+        let cfg = redis::aio::ConnectionManagerConfig::new()
+            .set_connection_timeout(std::time::Duration::from_secs(secs))
+            .set_number_of_retries(1);
+        let mgr = tokio::time::timeout(
+            std::time::Duration::from_secs(secs),
+            ConnectionManager::new_with_config(client, cfg),
+        )
+        .await
+        .map_err(|_| AppError::Timeout(format!("连接 Redis 超时（{secs}s）")))?
+        .map_err(map_err)?;
         Ok(Self { mgr })
     }
 

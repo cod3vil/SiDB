@@ -327,7 +327,12 @@ export default function App() {
   const cfg = configs.find((c) => c.id === activeTab?.connId) ?? null;
   const showDb = Boolean(caps?.supports_use_database);
   const showSchema = Boolean(caps?.supports_schemas);
-  const refDatabase = showSchema ? (cfg?.database ?? null) : showDb ? (activeTab?.db ?? null) : null;
+  // PG 多库：当前库在 activeTab.db（浏览/切库时设置）；回退到连接配置库。
+  const refDatabase = showSchema
+    ? (activeTab?.db ?? cfg?.database ?? null)
+    : showDb
+      ? (activeTab?.db ?? null)
+      : null;
   const refSchema = showSchema ? (activeTab?.schema ?? null) : null;
 
   // ---- 命令式拉取上下文数据（避免切 tab 时闪烁/重置）---------------------

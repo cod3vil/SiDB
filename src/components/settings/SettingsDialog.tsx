@@ -21,6 +21,7 @@ import {
 import { cn } from "@/lib/utils";
 import { checkUpdate, installUpdate, type Update } from "@/lib/update";
 import { version as currentVersion } from "../../../package.json";
+import { save as saveFileDialog, open as openFileDialog } from "@tauri-apps/plugin-dialog";
 
 interface Props {
   onClose: () => void;
@@ -32,7 +33,7 @@ const PROVIDERS = [
   { value: "custom", label: "OpenAI Compatible" },
 ];
 
-type Tab = "general" | "ai" | "update";
+type Tab = "general" | "ai" | "update" | "backup";
 
 export function SettingsDialog({ onClose }: Props) {
   const { t } = useTranslation();
@@ -124,12 +125,13 @@ export function SettingsDialog({ onClose }: Props) {
     { key: "general", label: t("settings.tabGeneral") },
     { key: "ai", label: t("settings.ai") },
     { key: "update", label: t("settings.tabUpdate") },
+    { key: "backup", label: t("settings.tabBackup") },
   ];
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
       <div
-        className="flex h-[460px] w-[480px] flex-col overflow-hidden rounded-xl border border-border bg-card shadow-2xl"
+        className="flex h-[580px] w-[480px] flex-col overflow-hidden rounded-xl border border-border bg-card shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="px-5 py-3 border-b border-border">
@@ -227,6 +229,8 @@ export function SettingsDialog({ onClose }: Props) {
           )}
 
           {tab === "update" && <UpdateTab autoCheck={autoCheck} setAutoCheck={setAutoCheck} />}
+
+          {tab === "backup" && <BackupTab />}
         </div>
 
         <div className="flex justify-end gap-2 px-5 py-3 border-t border-border">
@@ -237,6 +241,67 @@ export function SettingsDialog({ onClose }: Props) {
             {t("settings.save")}
           </Button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+function BackupTab() {
+  const { t } = useTranslation();
+  const [busy, setBusy] = useState(false);
+
+  const doExport = async () => {
+    const path = await saveFileDialog({
+      defaultPath: "sidb.json",
+      filters: [{ name: "JSON", extensions: ["json"] }],
+    });
+    if (typeof path !== "string") return;
+    setBusy(true);
+    try {
+      const n = await ipc.exportConfig(path);
+      toast.success(t("settings.exported", { n }));
+    } catch (e) {
+      toast.error(errorMessage(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const doImport = async () => {
+    const path = await openFileDialog({ filters: [{ name: "JSON", extensions: ["json"] }] });
+    if (typeof path !== "string") return;
+    setBusy(true);
+    try {
+      const n = await ipc.importConfig(path);
+      toast.success(t("settings.imported", { n }));
+    } catch (e) {
+      toast.error(errorMessage(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="space-y-1.5">
+        <Label>{t("settings.exportTitle")}</Label>
+        <p className="text-[11px] text-muted-foreground/80">{t("settings.exportHint")}</p>
+        <Button variant="outline" onClick={doExport} disabled={busy}>
+          <i className="ri-download-2-line" />
+          {t("settings.exportBtn")}
+        </Button>
+      </div>
+      <div className="space-y-1.5 border-t border-border pt-4">
+        <Label>{t("settings.importTitle")}</Label>
+        <p className="text-[11px] text-muted-foreground/80">{t("settings.importHint")}</p>
+        <Button variant="outline" onClick={doImport} disabled={busy}>
+          <i className="ri-upload-2-line" />
+          {t("settings.importBtn")}
+        </Button>
+      </div>
+      <div className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-600 dark:text-amber-400">
+        <i className="ri-alert-line mr-1" />
+        {t("settings.backupWarn")}
       </div>
     </div>
   );

@@ -116,6 +116,115 @@ pub fn delete_connection(state: State<'_, AppState>, id: String) -> R<()> {
     connection::delete_connection(&state.cred, &id)
 }
 
+// ---- 配置备份：导出 / 导入（连接 + 查询 + 设置 + 凭证）----------------------
+
+/// 导出全部本地配置到 JSON 文件。⚠️ 含明文凭证（密码 / 私钥口令 / AI Key），请妥善保管。
+#[tauri::command]
+pub fn export_config(state: State<'_, AppState>, path: String) -> R<usize> {
+    let configs = connection::load_configs();
+    let get = |k: String| state.cred.get(&k).ok().flatten();
+    let conns: Vec<serde_json::Value> = configs
+        .iter()
+        .map(|c| {
+            serde_json::json!({
+                "config": c,
+                "password": if c.has_password { get(keys::conn_password(&c.id)) } else { None },
+                "ssh_password": get(keys::conn_ssh_password(&c.id)),
+                "ssh_passphrase": get(keys::conn_ssh_passphrase(&c.id)),
+            })
+        })
+        .collect();
+    let queries = saved_query::load();
+    let st = settings::load();
+    let mut ai_keys = serde_json::Map::new();
+    if let Some(k) = get(keys::ai_api_key(&st.ai.provider)) {
+        ai_keys.insert(st.ai.provider.clone(), serde_json::Value::String(k));
+    }
+    let doc = serde_json::json!({
+        "app": "sidb",
+        "version": 1,
+        "connections": conns,
+        "queries": queries,
+        "settings": st,
+        "ai_keys": ai_keys,
+    });
+    let body = serde_json::to_string_pretty(&doc).map_err(|e| AppError::Internal(e.to_string()))?;
+    std::fs::write(&path, body).map_err(|e| AppError::Internal(e.to_string()))?;
+    Ok(configs.len())
+}
+
+/// 从 JSON 文件导入配置（按 id 合并：同 id 覆盖、新 id 追加；不删除现有项）。返回导入的连接数。
+#[tauri::command]
+pub fn import_config(state: State<'_, AppState>, path: String) -> R<usize> {
+    let body = std::fs::read_to_string(&path).map_err(|e| AppError::Internal(e.to_string()))?;
+    let doc: serde_json::Value =
+        serde_json::from_str(&body).map_err(|e| AppError::Internal(format!("解析失败: {e}")))?;
+    if doc.get("app").and_then(|v| v.as_str()) != Some("sidb") {
+        return Err(AppError::Internal("不是有效的 SiDB 备份文件".into()));
+    }
+
+    // 连接（合并 + 凭证写钥匙串）
+    let mut configs = connection::load_configs();
+    let mut imported = 0usize;
+    if let Some(arr) = doc.get("connections").and_then(|v| v.as_array()) {
+        for entry in arr {
+            let Some(cfg_val) = entry.get("config") else { continue };
+            let cfg: ConnConfig = match serde_json::from_value(cfg_val.clone()) {
+                Ok(c) => c,
+                Err(_) => continue,
+            };
+            let set_cred = |k: String, v: Option<&str>| {
+                if let Some(v) = v {
+                    let _ = state.cred.set(&k, v);
+                }
+            };
+            set_cred(keys::conn_password(&cfg.id), entry.get("password").and_then(|v| v.as_str()));
+            set_cred(keys::conn_ssh_password(&cfg.id), entry.get("ssh_password").and_then(|v| v.as_str()));
+            set_cred(keys::conn_ssh_passphrase(&cfg.id), entry.get("ssh_passphrase").and_then(|v| v.as_str()));
+            match configs.iter_mut().find(|c| c.id == cfg.id) {
+                Some(existing) => *existing = cfg,
+                None => configs.push(cfg),
+            }
+            imported += 1;
+        }
+    }
+    connection::replace_configs(&configs)?;
+
+    // 查询（合并）
+    if let Some(qv) = doc.get("queries") {
+        if let Ok(incoming) =
+            serde_json::from_value::<Vec<crate::services::saved_query::SavedQuery>>(qv.clone())
+        {
+            let mut queries = saved_query::load();
+            for q in incoming {
+                match queries.iter_mut().find(|x| x.id == q.id) {
+                    Some(existing) => *existing = q,
+                    None => queries.push(q),
+                }
+            }
+            saved_query::replace_all(&queries)?;
+        }
+    }
+
+    // 设置（整体覆盖）
+    if let Some(sv) = doc.get("settings") {
+        if let Ok(st) = serde_json::from_value::<Settings>(sv.clone()) {
+            settings::save(&st)?;
+        }
+    }
+
+    // AI Key（写钥匙串）
+    if let Some(m) = doc.get("ai_keys").and_then(|v| v.as_object()) {
+        for (prov, key) in m {
+            if let Some(k) = key.as_str() {
+                let _ = state.cred.set(&keys::ai_api_key(prov), k);
+            }
+        }
+    }
+
+    Ok(imported)
+}
+
 #[tauri::command]
 pub async fn test_connection(state: State<'_, AppState>, input: ConnConfigInput) -> R<()> {
     let timeout = input.connect_timeout_secs.unwrap_or(10);

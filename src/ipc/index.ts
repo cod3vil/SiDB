@@ -35,6 +35,8 @@ export const ipc = {
   saveConnection: (input: ConnConfigInput) =>
     invoke<ConnConfig>("save_connection", { input }),
   deleteConnection: (id: string) => invoke<void>("delete_connection", { id }),
+  exportConfig: (path: string) => invoke<number>("export_config", { path }),
+  importConfig: (path: string) => invoke<number>("import_config", { path }),
   testConnection: (input: ConnConfigInput) =>
     invoke<void>("test_connection", { input }),
   connect: (connId: string, database?: string) =>

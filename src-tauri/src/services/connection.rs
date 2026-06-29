@@ -95,6 +95,11 @@ pub fn load_configs() -> Vec<ConnConfig> {
     }
 }
 
+/// 整体覆盖连接配置（配置导入用；凭证另行写入钥匙串）。
+pub fn replace_configs(list: &[ConnConfig]) -> Result<()> {
+    save_configs(list)
+}
+
 fn save_configs(list: &[ConnConfig]) -> Result<()> {
     let dir = data_dir();
     std::fs::create_dir_all(&dir).map_err(|e| AppError::Internal(e.to_string()))?;
