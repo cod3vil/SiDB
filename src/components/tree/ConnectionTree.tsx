@@ -853,12 +853,21 @@ function PgDatabaseNode({
   depth: number;
   onOpenTable: (connId: string, table: TableRef) => void;
 }) {
+  const { t } = useTranslation();
   const { onActivate, filter } = useContext(TreeCtx);
+  const bumpTree = useConnections((s) => s.bumpTree);
   const [expanded, setExpanded] = useState(false);
   const [ready, setReady] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [newSchema, setNewSchema] = useState(false);
 
   if (filter && !nameMatches(db, filter) && !expanded) return null;
+
+  // PG 切库 = 重连到该库（同一时刻连接只在一个库）。
+  const connectDb = async () => {
+    await ipc.connect(cfg.id, db);
+    onActivate(cfg.id, db, null); // 联动工具栏 / 让查询 tab 用该库
+  };
 
   const toggle = async () => {
     if (expanded) {
@@ -867,9 +876,7 @@ function PgDatabaseNode({
     }
     setBusy(true);
     try {
-      // PG 切库 = 重连到该库（同一时刻连接只在一个库）。
-      await ipc.connect(cfg.id, db);
-      onActivate(cfg.id, db, null); // 联动工具栏 / 让查询 tab 用该库
+      await connectDb();
       setReady(true);
       setExpanded(true);
     } catch (e) {
@@ -879,20 +886,62 @@ function PgDatabaseNode({
     }
   };
 
+  // 新建 schema：必须先连到该库（PG 不能跨库建 schema），再 CREATE SCHEMA + 刷新展开。
+  const createSchema = async (name: string) => {
+    setNewSchema(false);
+    const nm = name.trim();
+    if (!nm) return;
+    setBusy(true);
+    try {
+      await connectDb();
+      await ipc.runSql(cfg.id, "ddl", `CREATE SCHEMA ${quoteIdent(nm, '"')};`, 0, 1, null);
+      setReady(true);
+      setExpanded(true);
+      bumpTree();
+    } catch (e) {
+      toast.error(errorMessage(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <div>
-      <Row
-        depth={depth}
-        hasChevron
-        expanded={expanded}
-        icon="ri-database-2-line"
-        label={db}
-        title={db}
-        onClick={toggle}
-        trailing={busy ? <i className="ri-loader-4-line animate-spin text-xs text-muted-foreground" /> : undefined}
-      />
+      <ContextMenu>
+        <ContextMenuTrigger asChild>
+          <div>
+            <Row
+              depth={depth}
+              hasChevron
+              expanded={expanded}
+              icon="ri-database-2-line"
+              label={db}
+              title={db}
+              onClick={toggle}
+              trailing={busy ? <i className="ri-loader-4-line animate-spin text-xs text-muted-foreground" /> : undefined}
+            />
+          </div>
+        </ContextMenuTrigger>
+        <ContextMenuContent>
+          <ContextMenuItem icon="ri-stack-line" onClick={() => setNewSchema(true)}>
+            {t("tree.newSchema")}
+          </ContextMenuItem>
+          <ContextMenuItem icon="ri-refresh-line" onClick={() => bumpTree()}>
+            {t("tree.refresh")}
+          </ContextMenuItem>
+        </ContextMenuContent>
+      </ContextMenu>
       {expanded && ready && (
         <SchemaList cfg={cfg} database={db} depth={depth + 1} onOpenTable={onOpenTable} />
+      )}
+      {newSchema && (
+        <NameDialog
+          title={t("tree.newSchema")}
+          initial=""
+          confirmLabel={t("tree.newSchema")}
+          onCancel={() => setNewSchema(false)}
+          onConfirm={createSchema}
+        />
       )}
     </div>
   );

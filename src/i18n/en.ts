@@ -88,6 +88,7 @@ export default {
     truncateConfirm: "Truncate \"{{name}}\"? (TRUNCATE — clears data, resets auto-increment, not rollbackable)",
     newQuery: "New query",
     newDatabase: "New database",
+    newSchema: "New schema",
     newTable: "New table",
     newView: "New view",
     newFunction: "New function",

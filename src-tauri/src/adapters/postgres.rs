@@ -138,6 +138,20 @@ fn string_via(row: &PgRow, i: usize) -> String {
     if let Ok(d) = row.try_get::<rust_decimal::Decimal, _>(i) {
         return d.to_string();
     }
+    // 时间类型：PG 二进制协议返回二进制（非文本），用 chrono 解码后格式化。
+    // 顺序：timestamp(无 tz) → timestamptz(带 tz，统一 UTC 展示) → date → time。
+    if let Ok(dt) = row.try_get::<chrono::NaiveDateTime, _>(i) {
+        return dt.format("%Y-%m-%d %H:%M:%S%.f").to_string();
+    }
+    if let Ok(dt) = row.try_get::<chrono::DateTime<chrono::Utc>, _>(i) {
+        return dt.format("%Y-%m-%d %H:%M:%S%.f%:z").to_string();
+    }
+    if let Ok(d) = row.try_get::<chrono::NaiveDate, _>(i) {
+        return d.format("%Y-%m-%d").to_string();
+    }
+    if let Ok(tm) = row.try_get::<chrono::NaiveTime, _>(i) {
+        return tm.format("%H:%M:%S%.f").to_string();
+    }
     String::new()
 }
 

@@ -88,6 +88,7 @@ export default {
     truncateConfirm: "确定截断「{{name}}」？（TRUNCATE，清空数据并重置自增，不可回滚）",
     newQuery: "新增查询",
     newDatabase: "新建数据库",
+    newSchema: "新建 Schema",
     newTable: "新增表",
     newView: "新增视图",
     newFunction: "新增函数",
