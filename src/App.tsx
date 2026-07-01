@@ -151,6 +151,8 @@ export default function App() {
   const { configs, connected, setConfigs, setConnected, bumpTree } = useConnections();
 
   const seqRef = useRef(1);
+  // 编辑器当前选区文本（由 SqlEditor 实时写入）：工具栏运行按钮据此决定跑选区还是整段。
+  const editorSelectionRef = useRef("");
   const blankTab = (n: number, init: Partial<QueryTab> = {}): QueryTab => ({
     id: `tab-${n}`,
     title: t("tab.queryN", { n }),
@@ -591,7 +593,7 @@ export default function App() {
       updateTab(tabId, { error: t("editor.noConn") });
       return false;
     }
-    const sqlText = overrideSql && overrideSql.trim() ? overrideSql : tab.sql;
+    const sqlText = typeof overrideSql === "string" && overrideSql.trim() ? overrideSql : tab.sql;
     updateTab(tabId, { running: true, error: null, browseTable: null });
     try {
       const results: RunResult[] = await ipc.runSql(
@@ -1102,7 +1104,7 @@ export default function App() {
             onSelectTable={onSelectTable}
             running={Boolean(activeTab?.running)}
             canRun={Boolean(activeTab?.connId)}
-            onRun={runSql}
+            onRun={() => void runSql(editorSelectionRef.current || undefined)}
             onCancel={cancelSql}
             canSave={Boolean(activeTab?.connId)}
             onSave={requestSave}
@@ -1113,6 +1115,7 @@ export default function App() {
               onChange={(v) => updateTab(activeTabId, { sql: v })}
               onRun={(sql) => void runSql(sql ?? undefined)}
               onAiAction={aiEditorAction}
+              selectionRef={editorSelectionRef}
               theme={theme}
             />
           </div>

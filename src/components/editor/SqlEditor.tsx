@@ -13,6 +13,8 @@ interface Props {
   /** 执行：传入要跑的 SQL；null 表示执行整段。 */
   onRun: (sql: string | null) => void;
   onAiAction?: (kind: AiEditorAction, sql: string) => void;
+  /** 实时写入当前选区文本（无选区为空串），供外部（工具栏运行按钮）读取。 */
+  selectionRef?: React.MutableRefObject<string>;
   fontSize?: number;
   theme?: "light" | "dark";
 }
@@ -35,9 +37,11 @@ function selectionText(editor: MonacoEditor): string {
   return "";
 }
 
-export function SqlEditor({ value, onChange, onRun, onAiAction, fontSize = 13, theme = "dark" }: Props) {
+export function SqlEditor({ value, onChange, onRun, onAiAction, selectionRef, fontSize = 13, theme = "dark" }: Props) {
   const { t } = useTranslation();
   const editorRef = useRef<MonacoEditor | null>(null);
+  const selRef = useRef(selectionRef);
+  selRef.current = selectionRef;
   // 用 ref 保证 Monaco 回调始终拿到最新的 onRun/onAiAction（编辑器只挂载一次，
   // 否则 addCommand 会捕获初次渲染的闭包，导致读到过期的 tab.connId 等状态）。
   const runRef = useRef(onRun);
@@ -48,6 +52,12 @@ export function SqlEditor({ value, onChange, onRun, onAiAction, fontSize = 13, t
   const handleMount: OnMount = useCallback(
     (editor, monaco) => {
       editorRef.current = editor;
+      // 实时同步选区文本到外部 ref（工具栏运行按钮据此判断跑选区还是整段）。
+      const syncSel = () => {
+        if (selRef.current?.current !== undefined) selRef.current.current = selectionText(editor);
+      };
+      editor.onDidChangeCursorSelection(syncSel);
+      syncSel();
       // Cmd/Ctrl + Enter：有选区跑选区，否则跑整段
       editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, () => {
         const sel = selectionText(editor);

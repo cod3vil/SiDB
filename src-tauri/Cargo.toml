@@ -1,6 +1,6 @@
 [package]
 name = "sidb"
-version = "1.2.7"
+version = "1.2.8"
 description = "轻量级跨平台数据库客户端"
 authors = ["SiDB"]
 edition = "2021"
