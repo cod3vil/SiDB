@@ -202,6 +202,7 @@ export default {
     inTransaction: "事务中",
     placeholder: "在此编写 SQL，⌘/Ctrl + Enter 执行",
     noConn: "请先在左侧连接一个数据源",
+    runSelected: "运行已选择的",
     functionSaved: "函数已保存",
     database: "库",
     databaseHint: "选择查询所在的数据库",

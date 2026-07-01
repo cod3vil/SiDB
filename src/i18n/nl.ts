@@ -210,7 +210,8 @@ export default {
     "saveTitle": "Query opslaan",
     "saveName": "Querynaam",
     "delete": "Verwijderen",
-    "deleteQueryConfirm": "Opgeslagen query \"{{name}}\" verwijderen?"
+    "deleteQueryConfirm": "Opgeslagen query \"{{name}}\" verwijderen?",
+    "runSelected": "Selectie uitvoeren"
   },
   "grid": {
     "page": "Rijen {{from}}–{{to}}",

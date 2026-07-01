@@ -210,7 +210,8 @@ export default {
     "saveTitle": "Simpan kueri",
     "saveName": "Nama kueri",
     "delete": "Hapus",
-    "deleteQueryConfirm": "Hapus kueri tersimpan \"{{name}}\"?"
+    "deleteQueryConfirm": "Hapus kueri tersimpan \"{{name}}\"?",
+    "runSelected": "Jalankan pilihan"
   },
   "grid": {
     "page": "Baris {{from}}–{{to}}",

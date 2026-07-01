@@ -10,7 +10,8 @@ export type AiEditorAction = "explain" | "optimize";
 interface Props {
   value: string;
   onChange: (v: string) => void;
-  onRun: (selectedOnly: boolean) => void;
+  /** 执行：传入要跑的 SQL；null 表示执行整段。 */
+  onRun: (sql: string | null) => void;
   onAiAction?: (kind: AiEditorAction, sql: string) => void;
   fontSize?: number;
   theme?: "light" | "dark";
@@ -26,6 +27,14 @@ function selectedOrAll(editor: MonacoEditor): string {
   return editor.getValue();
 }
 
+/** 当前选区文本（无选区返回空串）。 */
+function selectionText(editor: MonacoEditor): string {
+  const sel = editor.getSelection();
+  const model = editor.getModel();
+  if (sel && !sel.isEmpty() && model) return model.getValueInRange(sel);
+  return "";
+}
+
 export function SqlEditor({ value, onChange, onRun, onAiAction, fontSize = 13, theme = "dark" }: Props) {
   const { t } = useTranslation();
   const editorRef = useRef<MonacoEditor | null>(null);
@@ -39,11 +48,28 @@ export function SqlEditor({ value, onChange, onRun, onAiAction, fontSize = 13, t
   const handleMount: OnMount = useCallback(
     (editor, monaco) => {
       editorRef.current = editor;
-      // Cmd/Ctrl + Enter 执行
+      // Cmd/Ctrl + Enter：有选区跑选区，否则跑整段
       editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, () => {
-        const sel = editor.getSelection();
-        const hasSel = sel && !sel.isEmpty();
-        runRef.current(Boolean(hasSel));
+        const sel = selectionText(editor);
+        runRef.current(sel ? sel : null);
+      });
+      // 执行（右键，置顶分组）
+      editor.addAction({
+        id: "run-all-sql",
+        label: t("editor.runAll"),
+        contextMenuGroupId: "0_run",
+        contextMenuOrder: 1,
+        run: () => runRef.current(null),
+      });
+      editor.addAction({
+        id: "run-selected-sql",
+        label: t("editor.runSelected"),
+        contextMenuGroupId: "0_run",
+        contextMenuOrder: 2,
+        run: () => {
+          const sel = selectionText(editor);
+          if (sel) runRef.current(sel);
+        },
       });
       // AI 右键动作
       editor.addAction({

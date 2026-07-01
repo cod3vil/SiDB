@@ -210,7 +210,8 @@ export default {
     "saveTitle": "Guardar consulta",
     "saveName": "Nombre de la consulta",
     "delete": "Eliminar",
-    "deleteQueryConfirm": "¿Eliminar la consulta guardada \"{{name}}\"?"
+    "deleteQueryConfirm": "¿Eliminar la consulta guardada \"{{name}}\"?",
+    "runSelected": "Ejecutar selección"
   },
   "grid": {
     "page": "Filas {{from}}–{{to}}",

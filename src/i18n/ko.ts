@@ -210,7 +210,8 @@ export default {
     "saveTitle": "쿼리 저장",
     "saveName": "쿼리 이름",
     "delete": "삭제",
-    "deleteQueryConfirm": "저장된 쿼리 \"{{name}}\"을(를) 삭제할까요?"
+    "deleteQueryConfirm": "저장된 쿼리 \"{{name}}\"을(를) 삭제할까요?",
+    "runSelected": "선택 영역 실행"
   },
   "grid": {
     "page": "{{from}}–{{to}}행",

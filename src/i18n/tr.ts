@@ -210,7 +210,8 @@ export default {
     "saveTitle": "Sorguyu kaydet",
     "saveName": "Sorgu adı",
     "delete": "Sil",
-    "deleteQueryConfirm": "Kaydedilen \"{{name}}\" sorgusu silinsin mi?"
+    "deleteQueryConfirm": "Kaydedilen \"{{name}}\" sorgusu silinsin mi?",
+    "runSelected": "Seçimi çalıştır"
   },
   "grid": {
     "page": "Satırlar {{from}}–{{to}}",

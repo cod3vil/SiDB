@@ -210,7 +210,8 @@ export default {
     "saveTitle": "Abfrage speichern",
     "saveName": "Abfragename",
     "delete": "Löschen",
-    "deleteQueryConfirm": "Gespeicherte Abfrage „{{name}}“ löschen?"
+    "deleteQueryConfirm": "Gespeicherte Abfrage „{{name}}“ löschen?",
+    "runSelected": "Auswahl ausführen"
   },
   "grid": {
     "page": "Zeilen {{from}}–{{to}}",

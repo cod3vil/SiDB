@@ -210,7 +210,8 @@ export default {
     "saveTitle": "Salva query",
     "saveName": "Nome query",
     "delete": "Elimina",
-    "deleteQueryConfirm": "Eliminare la query salvata \"{{name}}\"?"
+    "deleteQueryConfirm": "Eliminare la query salvata \"{{name}}\"?",
+    "runSelected": "Esegui selezione"
   },
   "grid": {
     "page": "Righe {{from}}–{{to}}",

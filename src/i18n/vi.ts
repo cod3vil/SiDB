@@ -210,7 +210,8 @@ export default {
     "saveTitle": "Lưu truy vấn",
     "saveName": "Tên truy vấn",
     "delete": "Xóa",
-    "deleteQueryConfirm": "Xóa truy vấn đã lưu \"{{name}}\"?"
+    "deleteQueryConfirm": "Xóa truy vấn đã lưu \"{{name}}\"?",
+    "runSelected": "Chạy phần đã chọn"
   },
   "grid": {
     "page": "Dòng {{from}}–{{to}}",

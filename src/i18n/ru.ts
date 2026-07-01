@@ -210,7 +210,8 @@ export default {
     "saveTitle": "Сохранить запрос",
     "saveName": "Имя запроса",
     "delete": "Удалить",
-    "deleteQueryConfirm": "Удалить сохранённый запрос «{{name}}»?"
+    "deleteQueryConfirm": "Удалить сохранённый запрос «{{name}}»?",
+    "runSelected": "Выполнить выделение"
   },
   "grid": {
     "page": "Строки {{from}}–{{to}}",

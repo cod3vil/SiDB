@@ -210,7 +210,8 @@ export default {
     "saveTitle": "Salvar consulta",
     "saveName": "Nome da consulta",
     "delete": "Excluir",
-    "deleteQueryConfirm": "Excluir a consulta salva \"{{name}}\"?"
+    "deleteQueryConfirm": "Excluir a consulta salva \"{{name}}\"?",
+    "runSelected": "Executar seleção"
   },
   "grid": {
     "page": "Linhas {{from}}–{{to}}",

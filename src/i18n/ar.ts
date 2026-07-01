@@ -210,7 +210,8 @@ export default {
     "saveTitle": "حفظ الاستعلام",
     "saveName": "اسم الاستعلام",
     "delete": "حذف",
-    "deleteQueryConfirm": "حذف الاستعلام المحفوظ \"{{name}}\"؟"
+    "deleteQueryConfirm": "حذف الاستعلام المحفوظ \"{{name}}\"؟",
+    "runSelected": "تشغيل المحدد"
   },
   "grid": {
     "page": "الصفوف {{from}}–{{to}}",

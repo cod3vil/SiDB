@@ -210,7 +210,8 @@ export default {
     "saveTitle": "クエリを保存",
     "saveName": "クエリ名",
     "delete": "削除",
-    "deleteQueryConfirm": "保存済みクエリ「{{name}}」を削除しますか？"
+    "deleteQueryConfirm": "保存済みクエリ「{{name}}」を削除しますか？",
+    "runSelected": "選択範囲を実行"
   },
   "grid": {
     "page": "{{from}}–{{to}} 行",

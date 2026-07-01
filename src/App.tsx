@@ -545,6 +545,20 @@ export default function App() {
       setViewDialog({ connId, database, schema });
       return;
     }
+    // 新建查询：始终开一个新标签页（不复用当前 tab）。
+    if (type === "query") {
+      const n = ++seqRef.current;
+      const tab = blankTab(n, { connId, db: database ?? null, schema: schema ?? null, sql: "" });
+      setTabs((ts) => [...ts, tab]);
+      setActiveTabId(tab.id);
+      void (async () => {
+        const c = connected[connId];
+        if (!c) return;
+        const ctx = await loadContext(connId, c, database ?? null, schema ?? null);
+        updateTab(tab.id, { databases: ctx.databases, schemas: ctx.schemas, tables: ctx.tables });
+      })();
+      return;
+    }
     const tabId = activeTabId;
     const kind = configs.find((c) => c.id === connId)?.kind;
     updateTab(tabId, {
@@ -568,7 +582,8 @@ export default function App() {
     })();
   };
 
-  const runSql = async (): Promise<boolean> => {
+  // overrideSql 非空时只执行该段（如选区），不改动编辑器内容；否则执行整段 tab.sql。
+  const runSql = async (overrideSql?: string): Promise<boolean> => {
     const tabId = activeTabId;
     const tab = tabs.find((x) => x.id === tabId);
     if (!tab) return false;
@@ -576,12 +591,13 @@ export default function App() {
       updateTab(tabId, { error: t("editor.noConn") });
       return false;
     }
+    const sqlText = overrideSql && overrideSql.trim() ? overrideSql : tab.sql;
     updateTab(tabId, { running: true, error: null, browseTable: null });
     try {
       const results: RunResult[] = await ipc.runSql(
         tab.connId,
         tabId,
-        tab.sql,
+        sqlText,
         0,
         PAGE_SIZE,
         connected[tab.connId]?.supports_use_database ? tab.db : null,
@@ -1095,7 +1111,7 @@ export default function App() {
             <SqlEditor
               value={activeTab?.sql ?? ""}
               onChange={(v) => updateTab(activeTabId, { sql: v })}
-              onRun={runSql}
+              onRun={(sql) => void runSql(sql ?? undefined)}
               onAiAction={aiEditorAction}
               theme={theme}
             />

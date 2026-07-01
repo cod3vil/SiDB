@@ -210,7 +210,8 @@ export default {
     "saveTitle": "บันทึกแบบสอบถาม",
     "saveName": "ชื่อแบบสอบถาม",
     "delete": "ลบ",
-    "deleteQueryConfirm": "ลบแบบสอบถามที่บันทึกไว้ \"{{name}}\"?"
+    "deleteQueryConfirm": "ลบแบบสอบถามที่บันทึกไว้ \"{{name}}\"?",
+    "runSelected": "รันส่วนที่เลือก"
   },
   "grid": {
     "page": "แถว {{from}}–{{to}}",

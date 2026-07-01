@@ -202,6 +202,7 @@ export default {
     inTransaction: "In transaction",
     placeholder: "Write SQL here, ⌘/Ctrl + Enter to run",
     noConn: "Connect a data source on the left first",
+    runSelected: "Run selection",
     functionSaved: "Function saved",
     database: "DB",
     databaseHint: "Database to run the query against",

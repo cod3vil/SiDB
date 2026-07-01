@@ -210,7 +210,8 @@ export default {
     "saveTitle": "Enregistrer la requête",
     "saveName": "Nom de la requête",
     "delete": "Supprimer",
-    "deleteQueryConfirm": "Supprimer la requête enregistrée \"{{name}}\" ?"
+    "deleteQueryConfirm": "Supprimer la requête enregistrée \"{{name}}\" ?",
+    "runSelected": "Exécuter la sélection"
   },
   "grid": {
     "page": "Lignes {{from}}–{{to}}",

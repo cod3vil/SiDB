@@ -210,7 +210,8 @@ export default {
     "saveTitle": "儲存查詢",
     "saveName": "查詢名稱",
     "delete": "刪除",
-    "deleteQueryConfirm": "確定刪除已儲存的查詢「{{name}}」？"
+    "deleteQueryConfirm": "確定刪除已儲存的查詢「{{name}}」？",
+    "runSelected": "執行已選擇的"
   },
   "grid": {
     "page": "第 {{from}}–{{to}} 列",

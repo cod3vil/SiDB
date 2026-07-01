@@ -210,7 +210,8 @@ export default {
     "saveTitle": "क्वेरी सहेजें",
     "saveName": "क्वेरी का नाम",
     "delete": "हटाएँ",
-    "deleteQueryConfirm": "सहेजी गई क्वेरी \"{{name}}\" हटाएँ?"
+    "deleteQueryConfirm": "सहेजी गई क्वेरी \"{{name}}\" हटाएँ?",
+    "runSelected": "चयन चलाएँ"
   },
   "grid": {
     "page": "पंक्तियाँ {{from}}–{{to}}",
