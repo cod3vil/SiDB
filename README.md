@@ -8,7 +8,7 @@
 
 Tauri 2 · Rust · React — 安装包仅约 7MB
 
-支持 **MySQL · PostgreSQL · SQLite · Redis**
+支持 **MySQL · MariaDB · PostgreSQL · SQLite · Redis · TDengine**
 
 <br />
 
@@ -32,7 +32,7 @@ Tauri 2 · Rust · React — 安装包仅约 7MB
 ## ✨ 功能
 
 ### 连接管理
-- MySQL / PostgreSQL / SQLite / Redis 四种数据源
+- MySQL / MariaDB / PostgreSQL / SQLite / Redis / TDengine 六种数据源
 - **SSH 隧道**（密码 / 私钥认证，本地端口转发对用户透明）
 - 凭证（密码、私钥口令、AI API Key）**只存系统钥匙串**（macOS Keychain / Windows 凭据管理器），配置文件与日志中绝不含明文
 - 连接测试、分组、编辑、删除（删除时同步清理钥匙串）
