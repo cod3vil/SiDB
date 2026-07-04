@@ -9,6 +9,7 @@ import { createContext, useCallback, useContext, useEffect, useState } from "rea
 import { useTranslation } from "react-i18next";
 import { ipc } from "@/ipc";
 import type {
+  ChildTable,
   ConnConfig,
   ConnConfigInput,
   DbCapabilities,
@@ -103,6 +104,8 @@ const TreeCtx = createContext<{
   onRunSqlFile: (connId: string, database: string | null) => void;
   /** Redis 连接：连上后打开 RedisWorkspace（不走 SQL 树/工具栏）。 */
   onOpenRedis: (connId: string) => void;
+  /** 快捷查询（如 TDengine 时间范围）：新开标签、填入 SQL 并执行。 */
+  onQuickQuery: (connId: string, database: string | null, title: string, sql: string) => void;
   /** 过滤词（已小写去空白）；空串表示不过滤。深层节点据此过滤已加载的库/表/视图/函数/查询名。 */
   filter: string;
 }>({
@@ -115,6 +118,7 @@ const TreeCtx = createContext<{
   onExportStructure: () => undefined,
   onRunSqlFile: () => undefined,
   onOpenRedis: () => undefined,
+  onQuickQuery: () => undefined,
   filter: "",
 });
 
@@ -142,6 +146,7 @@ interface Props {
   onExportStructure: (connId: string, target: ExportStructureTarget, withData: boolean) => void;
   onRunSqlFile: (connId: string, database: string | null) => void;
   onOpenRedis: (connId: string) => void;
+  onQuickQuery: (connId: string, database: string | null, title: string, sql: string) => void;
   onNewConnection: (group?: string | null) => void;
   onEditConnection: (cfg: ConnConfig) => void;
 }
@@ -157,6 +162,7 @@ export function ConnectionTree({
   onExportStructure,
   onRunSqlFile,
   onOpenRedis,
+  onQuickQuery,
   onNewConnection,
   onEditConnection,
 }: Props) {
@@ -332,7 +338,7 @@ export function ConnectionTree({
         {configs.length === 0 ? (
           <EmptyState onNew={() => onNewConnection()} />
         ) : (
-          <TreeCtx.Provider value={{ onShowDdl, onEditTable, onActivate, onNewObject, onOpenQuery, onShowFunction, onExportStructure, onRunSqlFile, onOpenRedis, filter: flc }}>
+          <TreeCtx.Provider value={{ onShowDdl, onEditTable, onActivate, onNewObject, onOpenQuery, onShowFunction, onExportStructure, onRunSqlFile, onOpenRedis, onQuickQuery, filter: flc }}>
             <ContextMenu>
               <ContextMenuTrigger asChild>
                 <div
@@ -1275,16 +1281,27 @@ function CategoryNode(
             (tables === null ? (
               <Loading depth={cdepth} />
             ) : items && items.length > 0 ? (
-              items.map((tb) => (
-                <TableItem
-                  key={tb.name}
-                  connId={p.connId}
-                  table={{ database: p.refDatabase, schema: p.refSchema, name: tb.name }}
-                  isView={p.kind === "views"}
-                  depth={cdepth}
-                  onOpenTable={p.onOpenTable}
-                />
-              ))
+              items.map((tb) =>
+                tb.is_super ? (
+                  <SuperTableItem
+                    key={tb.name}
+                    connId={p.connId}
+                    database={p.refDatabase}
+                    stable={tb.name}
+                    depth={cdepth}
+                    onOpenTable={p.onOpenTable}
+                  />
+                ) : (
+                  <TableItem
+                    key={tb.name}
+                    connId={p.connId}
+                    table={{ database: p.refDatabase, schema: p.refSchema, name: tb.name }}
+                    isView={p.kind === "views"}
+                    depth={cdepth}
+                    onOpenTable={p.onOpenTable}
+                  />
+                ),
+              )
             ) : (
               <Hint depth={cdepth} text={t("grid.empty")} />
             ))}
@@ -1434,6 +1451,172 @@ function QueryItem({
   );
 }
 
+// 超级表（TDengine STable）：单击浏览其数据；展开箭头懒加载子表。
+/** TDengine 时间范围快捷查询菜单项（最近 1h / 24h / 7d）。表名已由调用方限定库。 */
+function TimeRangeItems({
+  connId,
+  database,
+  table,
+}: {
+  connId: string;
+  database: string | null;
+  table: string;
+}) {
+  const { t } = useTranslation();
+  const { onQuickQuery } = useContext(TreeCtx);
+  const qt = database ? `\`${database}\`.\`${table}\`` : `\`${table}\``;
+  const run = (range: string, label: string) =>
+    onQuickQuery(
+      connId,
+      database,
+      `${table} · ${label}`,
+      `SELECT * FROM ${qt} WHERE ts > NOW - ${range} ORDER BY ts DESC LIMIT 1000`,
+    );
+  return (
+    <>
+      <ContextMenuItem icon="ri-time-line" onClick={() => run("1h", t("tree.last1h"))}>
+        {t("tree.last1h")}
+      </ContextMenuItem>
+      <ContextMenuItem icon="ri-time-line" onClick={() => run("24h", t("tree.last24h"))}>
+        {t("tree.last24h")}
+      </ContextMenuItem>
+      <ContextMenuItem icon="ri-time-line" onClick={() => run("7d", t("tree.last7d"))}>
+        {t("tree.last7d")}
+      </ContextMenuItem>
+    </>
+  );
+}
+
+/** TDengine 子表：显示标签摘要；单击浏览；右键含时间范围快捷查询。 */
+function ChildTableItem({
+  connId,
+  database,
+  child,
+  depth,
+  onOpenTable,
+}: {
+  connId: string;
+  database: string | null;
+  child: ChildTable;
+  depth: number;
+  onOpenTable: (connId: string, table: TableRef) => void;
+}) {
+  const { t } = useTranslation();
+  return (
+    <ContextMenu>
+      <ContextMenuTrigger asChild>
+        <div>
+          <Row
+            depth={depth}
+            icon="ri-table-line"
+            iconColor="text-muted-foreground"
+            label={child.name}
+            title={child.tags ? `${child.name} · ${child.tags}` : child.name}
+            onClick={() => onOpenTable(connId, { database, schema: null, name: child.name })}
+          />
+        </div>
+      </ContextMenuTrigger>
+      <ContextMenuContent>
+        <ContextMenuItem icon="ri-table-line" onClick={() => onOpenTable(connId, { database, schema: null, name: child.name })}>
+          {t("tree.openData")}
+        </ContextMenuItem>
+        <ContextMenuSeparator />
+        <TimeRangeItems connId={connId} database={database} table={child.name} />
+        <ContextMenuSeparator />
+        <ContextMenuItem icon="ri-file-copy-line" onClick={() => copyText(child.name)}>
+          {t("tree.copyName")}
+        </ContextMenuItem>
+      </ContextMenuContent>
+    </ContextMenu>
+  );
+}
+
+function SuperTableItem({
+  connId,
+  database,
+  stable,
+  depth,
+  onOpenTable,
+}: {
+  connId: string;
+  database: string | null;
+  stable: string;
+  depth: number;
+  onOpenTable: (connId: string, table: TableRef) => void;
+}) {
+  const { t } = useTranslation();
+  const { filter } = useContext(TreeCtx);
+  const [expanded, setExpanded] = useState(false);
+  const [children, setChildren] = useState<ChildTable[] | null>(null);
+
+  if (filter && !nameMatches(stable, filter) && !expanded) return null;
+
+  const toggle = () => {
+    const next = !expanded;
+    setExpanded(next);
+    if (next && children === null) {
+      ipc
+        .listChildTables(connId, database ?? "", stable)
+        .then(setChildren)
+        .catch((e) => {
+          setChildren([]);
+          toast.error(errorMessage(e));
+        });
+    }
+  };
+
+  return (
+    <div>
+      <ContextMenu>
+        <ContextMenuTrigger asChild>
+          <div>
+            <Row
+              depth={depth}
+              hasChevron
+              expanded={expanded}
+              icon="ri-stack-line"
+              iconColor="text-primary"
+              label={stable}
+              title={`${stable}（${t("tree.superTable")}）`}
+              onClick={toggle}
+            />
+          </div>
+        </ContextMenuTrigger>
+        <ContextMenuContent>
+          <ContextMenuItem icon="ri-table-line" onClick={() => onOpenTable(connId, { database, schema: null, name: stable })}>
+            {t("tree.openData")}
+          </ContextMenuItem>
+          <ContextMenuSeparator />
+          <TimeRangeItems connId={connId} database={database} table={stable} />
+          <ContextMenuSeparator />
+          <ContextMenuItem icon="ri-file-copy-line" onClick={() => copyText(stable)}>
+            {t("tree.copyName")}
+          </ContextMenuItem>
+        </ContextMenuContent>
+      </ContextMenu>
+      {expanded &&
+        (children === null ? (
+          <Loading depth={depth + 1} />
+        ) : children.length > 0 ? (
+          children
+            .filter((c) => nameMatches(c.name, filter))
+            .map((c) => (
+              <ChildTableItem
+                key={c.name}
+                connId={connId}
+                database={database}
+                child={c}
+                depth={depth + 1}
+                onOpenTable={onOpenTable}
+              />
+            ))
+        ) : (
+          <Hint depth={depth + 1} text={t("tree.noChildTables")} />
+        ))}
+    </div>
+  );
+}
+
 // 表 / 视图项：单击打开数据；右键菜单 = 打开数据 / 查看 DDL / 复制名称。
 function TableItem({
   connId,
@@ -1484,7 +1667,7 @@ function TableItem({
     } else {
       // 复制：建同构表 + 拷数据。
       let sql: string;
-      if (kind === "mysql") sql = `CREATE TABLE ${newQt(nm)} LIKE ${qt};\nINSERT INTO ${newQt(nm)} SELECT * FROM ${qt};`;
+      if (kind === "mysql" || kind === "mariadb") sql = `CREATE TABLE ${newQt(nm)} LIKE ${qt};\nINSERT INTO ${newQt(nm)} SELECT * FROM ${qt};`;
       else if (kind === "postgres") sql = `CREATE TABLE ${newQt(nm)} (LIKE ${qt} INCLUDING ALL);\nINSERT INTO ${newQt(nm)} SELECT * FROM ${qt};`;
       else sql = `CREATE TABLE ${newQt(nm)} AS SELECT * FROM ${qt};`; // sqlite：丢失约束
       await run(sql);

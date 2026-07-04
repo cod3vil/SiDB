@@ -5,6 +5,32 @@ This project follows semantic versioning. Dates are release dates.
 
 ---
 
+## v1.2.9
+
+**中文**
+- 新增 TDengine 支持：连接、库/表浏览、超级表与子表识别、标签可视化，以及「最近 1h / 24h / 7d」时间范围快捷查询。
+- 新增 MariaDB 支持（与 MySQL 线协议兼容，建表 / 改表结构 / 索引 / 外键 / 表选项全部可用）。
+- 新建连接的数据库类型改为下拉菜单（接入种类增多后更清爽）。
+- 无主键或唯一非空索引的结果集显示为「只读」短标签，鼠标悬停显示具体原因。
+- 子表标签不再挤占表名，改为悬停 tooltip 显示。
+- 新建连接弹窗高度略微加高。
+
+**English**
+- Added TDengine support: connect, database/table browsing, super-table & child-table detection, tag visualization, and "last 1h / 24h / 7d" quick time-range queries.
+- Added MariaDB support (MySQL wire-compatible; create/alter table, indexes, foreign keys and table options all work).
+- Connection type is now a dropdown in the New Connection dialog (cleaner as more engines are added).
+- Result sets without a primary key or unique-not-null index show a short "Read-only" label; hover reveals the reason.
+- Child-table tags no longer crowd out the table name — shown in a hover tooltip instead.
+- Slightly taller New Connection dialog.
+
+## v1.2.8
+
+**中文**
+- 修复工具栏「运行」按钮误把点击事件当作 SQL 传入的问题；运行选中/整段 SQL 均恢复正常。
+
+**English**
+- Fixed the toolbar "Run" button passing the click event as SQL; running the selection or the whole statement works correctly again.
+
 ## v1.2.7
 
 **中文**

@@ -107,7 +107,12 @@ export default {
     "dropTableConfirm": "حذف «{{name}}»؟ لا يمكن التراجع — ستُحذف البنية والبيانات.",
     "emptyConfirm": "حذف كل صفوف «{{name}}»؟ (DELETE، مع الإبقاء على البنية)",
     "truncateConfirm": "اقتطاع «{{name}}»؟ (TRUNCATE: يمسح البيانات ويعيد ضبط الترقيم التلقائي، لا يمكن التراجع)",
-    "newSchema": "مخطط جديد"
+    "newSchema": "مخطط جديد",
+    "superTable": "جدول فائق",
+    "noChildTables": "لا جداول فرعية",
+    "last1h": "آخر ساعة",
+    "last24h": "آخر 24 ساعة",
+    "last7d": "آخر 7 أيام"
   },
   "export": {
     "title": "تصدير",
@@ -234,7 +239,8 @@ export default {
     "affectedRows": "الصفوف المتأثرة: {{n}}",
     "lastInsertId": "آخر معرّف مُدرَج: {{n}}",
     "time": "الوقت: {{s}} ث",
-    "askAi": "اسأل الذكاء الاصطناعي"
+    "askAi": "اسأل الذكاء الاصطناعي",
+    "readOnlyLabel": "للقراءة فقط"
   },
   "edit": {
     "setNull": "تعيين NULL",

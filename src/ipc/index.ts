@@ -23,6 +23,7 @@ import type {
   SavedQuery,
   SavedQueryInput,
   Settings,
+  ChildTable,
   TableInfo,
   TableRef,
   TableSchema,
@@ -50,6 +51,8 @@ export const ipc = {
     invoke<string[]>("list_schemas", { connId, database }),
   listTables: (connId: string, database: string, schema?: string | null) =>
     invoke<TableInfo[]>("list_tables", { connId, database, schema }),
+  listChildTables: (connId: string, database: string, stable: string) =>
+    invoke<ChildTable[]>("list_child_tables", { connId, database, stable }),
   listFunctions: (connId: string, database: string, schema?: string | null) =>
     invoke<RoutineInfo[]>("list_functions", { connId, database, schema }),
   listColumns: (connId: string, table: TableRef) =>

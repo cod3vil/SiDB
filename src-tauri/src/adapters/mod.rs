@@ -6,6 +6,7 @@
 pub mod mysql;
 pub mod postgres;
 pub mod sqlite;
+pub mod tdengine;
 pub mod type_map;
 
 use crate::models::*;
@@ -96,6 +97,10 @@ pub trait DbAdapter: Send + Sync {
     /// 非 PG 返回空。
     async fn list_schemas(&self, db: &str) -> Result<Vec<String>>;
     async fn list_tables(&self, db: &str, schema: Option<&str>) -> Result<Vec<TableInfo>>;
+    /// TDengine 超级表下的子表（名称 + 标签摘要）；其它库返回空。
+    async fn list_child_tables(&self, _db: &str, _stable: &str) -> Result<Vec<ChildTable>> {
+        Ok(Vec::new())
+    }
     /// 函数 / 存储过程。无该概念的方言（SQLite）返回空。
     async fn list_functions(&self, _db: &str, _schema: Option<&str>) -> Result<Vec<RoutineInfo>> {
         Ok(Vec::new())
@@ -135,9 +140,10 @@ pub trait DbAdapter: Send + Sync {
 /// 工厂（TDD §4.1）。
 pub fn create_adapter(kind: DbKind) -> Box<dyn DbAdapter> {
     match kind {
-        DbKind::Mysql => Box::new(mysql::MySqlAdapter::new()),
+        DbKind::Mysql | DbKind::Mariadb => Box::new(mysql::MySqlAdapter::new()),
         DbKind::Postgres => Box::new(postgres::PostgresAdapter::new()),
         DbKind::Sqlite => Box::new(sqlite::SqliteAdapter::new()),
+        DbKind::Tdengine => Box::new(tdengine::TdengineAdapter::new()),
         // Redis 不是 SQL adapter；连接路由在 ConnectionManager 层分叉，绝不会走到这里。
         DbKind::Redis => unreachable!("redis uses RedisAdapter, not create_adapter"),
     }

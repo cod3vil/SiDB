@@ -531,6 +531,18 @@ pub async fn list_tables(
 }
 
 #[tauri::command]
+pub async fn list_child_tables(
+    state: State<'_, AppState>,
+    conn_id: String,
+    database: String,
+    stable: String,
+) -> R<Vec<ChildTable>> {
+    let s = session(&state, &conn_id)?;
+    let a = s.adapter.lock().await;
+    a.list_child_tables(&database, &stable).await
+}
+
+#[tauri::command]
 pub async fn list_functions(
     state: State<'_, AppState>,
     conn_id: String,

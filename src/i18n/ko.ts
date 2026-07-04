@@ -107,7 +107,12 @@ export default {
     "dropTableConfirm": "「{{name}}」을(를) 삭제할까요? 되돌릴 수 없으며 구조와 데이터가 모두 삭제됩니다.",
     "emptyConfirm": "「{{name}}」의 모든 행을 삭제할까요? (DELETE, 구조 유지)",
     "truncateConfirm": "「{{name}}」을(를) truncate 할까요? (TRUNCATE: 데이터 삭제·자동 증가 초기화, 롤백 불가)",
-    "newSchema": "새 스키마"
+    "newSchema": "새 스키마",
+    "superTable": "슈퍼 테이블",
+    "noChildTables": "하위 테이블 없음",
+    "last1h": "최근 1시간",
+    "last24h": "최근 24시간",
+    "last7d": "최근 7일"
   },
   "export": {
     "title": "내보내기",
@@ -234,7 +239,8 @@ export default {
     "affectedRows": "영향받은 행: {{n}}",
     "lastInsertId": "마지막 삽입 id: {{n}}",
     "time": "시간: {{s}}초",
-    "askAi": "AI에게 질문"
+    "askAi": "AI에게 질문",
+    "readOnlyLabel": "읽기 전용"
   },
   "edit": {
     "setNull": "NULL로 설정",

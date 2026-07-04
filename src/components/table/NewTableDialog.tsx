@@ -41,7 +41,7 @@ export function NewTableDialog({ connId, kind, quoteChar, database, schema, onCl
   const { t } = useTranslation();
   const types = TYPES[kind] ?? TYPES.mysql;
   const idRef = useRef(2);
-  const isMysql = kind === "mysql";
+  const isMysql = kind === "mysql" || kind === "mariadb";
 
   const [tableName, setTableName] = useState("");
   const [columns, setColumns] = useState<Column[]>([

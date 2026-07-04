@@ -107,7 +107,12 @@ export default {
     "dropTableConfirm": "“{{name}}” verwijderen? Dit kan niet ongedaan worden gemaakt — structuur en data worden verwijderd.",
     "emptyConfirm": "Alle rijen van “{{name}}” verwijderen? (DELETE, structuur blijft)",
     "truncateConfirm": "“{{name}}” truncaten? (TRUNCATE: wist data, reset auto-increment, niet terug te draaien)",
-    "newSchema": "Nieuw schema"
+    "newSchema": "Nieuw schema",
+    "superTable": "supertabel",
+    "noChildTables": "Geen subtabellen",
+    "last1h": "Laatste 1 uur",
+    "last24h": "Laatste 24 uur",
+    "last7d": "Laatste 7 dagen"
   },
   "export": {
     "title": "Exporteren",
@@ -234,7 +239,8 @@ export default {
     "affectedRows": "Beïnvloede rijen: {{n}}",
     "lastInsertId": "Laatste insert-id: {{n}}",
     "time": "Tijd: {{s}}s",
-    "askAi": "Vraag AI"
+    "askAi": "Vraag AI",
+    "readOnlyLabel": "Alleen-lezen"
   },
   "edit": {
     "setNull": "Op NULL zetten",

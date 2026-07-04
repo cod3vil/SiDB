@@ -292,6 +292,7 @@ impl DbAdapter for SqliteAdapter {
                 } else {
                     TableKind::Table
                 },
+                is_super: false,
             });
         }
         Ok(out)

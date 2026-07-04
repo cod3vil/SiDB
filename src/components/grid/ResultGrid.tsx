@@ -421,8 +421,12 @@ export function ResultGrid({ result, onGoto, table, onCommit, onExport, onAskAi,
           )}
           <span>{result.elapsed_ms} ms</span>
           {readOnly && (
-            <span className="text-amber-500">
-              {t("grid.readOnly", { reason: (result.editable as { reason: string }).reason })}
+            <span
+              className="flex cursor-help items-center gap-1 text-amber-500"
+              title={(result.editable as { reason: string }).reason}
+            >
+              <i className="ri-lock-line" />
+              {t("grid.readOnlyLabel")}
             </span>
           )}
         </div>

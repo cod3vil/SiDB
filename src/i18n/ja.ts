@@ -107,7 +107,12 @@ export default {
     "dropTableConfirm": "「{{name}}」を削除しますか？元に戻せません。構造とデータがすべて削除されます。",
     "emptyConfirm": "「{{name}}」の全行を削除しますか？（DELETE、構造は保持）",
     "truncateConfirm": "「{{name}}」を切り詰めますか？（TRUNCATE：データを消去し自動採番をリセット、ロールバック不可）",
-    "newSchema": "新規スキーマ"
+    "newSchema": "新規スキーマ",
+    "superTable": "スーパーテーブル",
+    "noChildTables": "子テーブルなし",
+    "last1h": "直近 1 時間",
+    "last24h": "直近 24 時間",
+    "last7d": "直近 7 日間"
   },
   "export": {
     "title": "エクスポート",
@@ -234,7 +239,8 @@ export default {
     "affectedRows": "影響行数：{{n}}",
     "lastInsertId": "最後の挿入 ID：{{n}}",
     "time": "時間：{{s}} 秒",
-    "askAi": "AIに聞く"
+    "askAi": "AIに聞く",
+    "readOnlyLabel": "読み取り専用"
   },
   "edit": {
     "setNull": "NULL に設定",

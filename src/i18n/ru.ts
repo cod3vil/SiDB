@@ -107,7 +107,12 @@ export default {
     "dropTableConfirm": "Удалить «{{name}}»? Это необратимо — структура и данные будут удалены.",
     "emptyConfirm": "Удалить все строки «{{name}}»? (DELETE, структура сохраняется)",
     "truncateConfirm": "Усечь «{{name}}»? (TRUNCATE — очищает данные, сбрасывает автоинкремент, без отката)",
-    "newSchema": "Новая схема"
+    "newSchema": "Новая схема",
+    "superTable": "супертаблица",
+    "noChildTables": "Нет дочерних таблиц",
+    "last1h": "Последний час",
+    "last24h": "Последние 24 часа",
+    "last7d": "Последние 7 дней"
   },
   "export": {
     "title": "Экспорт",
@@ -234,7 +239,8 @@ export default {
     "affectedRows": "Затронуто строк: {{n}}",
     "lastInsertId": "Последний вставленный id: {{n}}",
     "time": "Время: {{s}}с",
-    "askAi": "Спросить ИИ"
+    "askAi": "Спросить ИИ",
+    "readOnlyLabel": "Только чтение"
   },
   "edit": {
     "setNull": "Установить NULL",

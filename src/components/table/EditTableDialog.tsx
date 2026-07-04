@@ -80,6 +80,7 @@ const COLLATIONS: Record<string, string[]> = {
 };
 const INDEX_METHODS: Record<string, string[]> = {
   mysql: ["BTREE", "HASH"],
+  mariadb: ["BTREE", "HASH"],
   postgres: ["btree", "hash", "gin", "gist", "brin", "spgist"],
   sqlite: [],
 };
@@ -152,7 +153,7 @@ export function EditTableDialog({ connId, kind, quoteChar, table, onClose, onSav
   const { t } = useTranslation();
   const types = TYPES[kind] ?? TYPES.mysql;
   const isSqlite = kind === "sqlite";
-  const isMysql = kind === "mysql";
+  const isMysql = kind === "mysql" || kind === "mariadb";
   const idRef = useRef(1);
 
   const [loading, setLoading] = useState(true);

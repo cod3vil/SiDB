@@ -1,6 +1,6 @@
 // 前端 DTO 类型 —— 与 Rust models.rs 手工对齐（一期不引代码生成，TDD §9）。
 
-export type DbKind = "mysql" | "postgres" | "sqlite" | "redis";
+export type DbKind = "mysql" | "mariadb" | "postgres" | "sqlite" | "redis" | "tdengine";
 
 /** 连接引擎家族：SQL（mysql/pg/sqlite）或 Redis（KV）。由 kind 推导。 */
 export type Engine = "sql" | "redis";
@@ -184,6 +184,13 @@ export interface DatabaseInfo {
 export interface TableInfo {
   name: string;
   kind: "table" | "view";
+  /** TDengine 超级表标记；其它库为 false。 */
+  is_super?: boolean;
+}
+/** TDengine 子表：名称 + 标签摘要（如 `location=beijing, device_id=1`）。 */
+export interface ChildTable {
+  name: string;
+  tags: string;
 }
 export interface RoutineInfo {
   name: string;

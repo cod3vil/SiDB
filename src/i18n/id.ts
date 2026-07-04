@@ -107,7 +107,12 @@ export default {
     "dropTableConfirm": "Hapus “{{name}}”? Tidak bisa dibatalkan — struktur dan data dihapus.",
     "emptyConfirm": "Hapus semua baris “{{name}}”? (DELETE, struktur tetap)",
     "truncateConfirm": "Truncate “{{name}}”? (TRUNCATE: menghapus data, mereset auto-increment, tidak bisa di-rollback)",
-    "newSchema": "Schema baru"
+    "newSchema": "Schema baru",
+    "superTable": "super tabel",
+    "noChildTables": "Tidak ada sub-tabel",
+    "last1h": "1 jam terakhir",
+    "last24h": "24 jam terakhir",
+    "last7d": "7 hari terakhir"
   },
   "export": {
     "title": "Ekspor",
@@ -234,7 +239,8 @@ export default {
     "affectedRows": "Baris terpengaruh: {{n}}",
     "lastInsertId": "ID sisipan terakhir: {{n}}",
     "time": "Waktu: {{s}}d",
-    "askAi": "Tanya AI"
+    "askAi": "Tanya AI",
+    "readOnlyLabel": "Hanya-baca"
   },
   "edit": {
     "setNull": "Setel NULL",

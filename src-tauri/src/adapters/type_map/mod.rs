@@ -15,6 +15,19 @@ fn base(type_name: &str) -> String {
 /// MySQL 类型 → value_kind。
 ///
 /// 特例：`TINYINT(1)` → Bool（一期默认开启）；`DECIMAL` → Decimal；`BLOB/BINARY` → Bytes。
+/// TDengine 类型 → value_kind。TIMESTAMP → DateTime；数值/文本各归类。
+pub fn tdengine_kind(type_name: &str) -> &'static str {
+    match base(type_name).as_str() {
+        "timestamp" => "DateTime",
+        "bool" => "Bool",
+        "tinyint" | "smallint" | "int" | "bigint" | "tinyint unsigned" | "smallint unsigned"
+        | "int unsigned" | "bigint unsigned" => "Int",
+        "float" | "double" => "Float",
+        "binary" | "nchar" | "varchar" | "varbinary" | "json" | "geometry" | "blob" => "Text",
+        _ => "Text",
+    }
+}
+
 pub fn mysql_kind(type_name: &str) -> &'static str {
     let lower = type_name.trim().to_ascii_lowercase();
     if lower.starts_with("tinyint(1)") {

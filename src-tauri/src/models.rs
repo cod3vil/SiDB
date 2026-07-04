@@ -239,6 +239,16 @@ pub enum TableKind {
 pub struct TableInfo {
     pub name: String,
     pub kind: TableKind,
+    /// TDengine 超级表（STable）标记；其它库恒为 false。超级表在树里可展开看子表。
+    #[serde(default)]
+    pub is_super: bool,
+}
+
+/// TDengine 子表：名称 + 标签摘要（如 `location=beijing, device_id=1`）。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChildTable {
+    pub name: String,
+    pub tags: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -326,10 +336,14 @@ pub struct TableOptions {
 #[serde(rename_all = "lowercase")]
 pub enum DbKind {
     Mysql,
+    /// MariaDB：与 MySQL 线协议/SQL 兼容，复用 MySqlAdapter。
+    Mariadb,
     Postgres,
     Sqlite,
     /// Redis（KV 引擎，单机）。走独立的 RedisAdapter，不经 SQL 的 DbAdapter。
     Redis,
+    /// TDengine（时序库）。走 HTTP REST（taosAdapter），实现 DbAdapter，只读浏览。
+    Tdengine,
 }
 
 /// 字节字面量风格：`x'AB'`（MySQL/SQLite）或 `'\xAB'`（PG bytea）。

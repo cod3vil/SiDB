@@ -107,7 +107,12 @@ export default {
     "dropTableConfirm": "ลบ “{{name}}” หรือไม่? ย้อนกลับไม่ได้ — โครงสร้างและข้อมูลจะถูกลบทั้งหมด",
     "emptyConfirm": "ลบทุกแถวของ “{{name}}” หรือไม่? (DELETE คงโครงสร้างไว้)",
     "truncateConfirm": "Truncate “{{name}}” หรือไม่? (TRUNCATE: ล้างข้อมูล รีเซ็ต auto-increment ย้อนกลับไม่ได้)",
-    "newSchema": "สร้าง Schema"
+    "newSchema": "สร้าง Schema",
+    "superTable": "ซูเปอร์เทเบิล",
+    "noChildTables": "ไม่มีตารางย่อย",
+    "last1h": "1 ชั่วโมงล่าสุด",
+    "last24h": "24 ชั่วโมงล่าสุด",
+    "last7d": "7 วันล่าสุด"
   },
   "export": {
     "title": "ส่งออก",
@@ -234,7 +239,8 @@ export default {
     "affectedRows": "แถวที่ได้รับผลกระทบ: {{n}}",
     "lastInsertId": "id ที่แทรกล่าสุด: {{n}}",
     "time": "เวลา: {{s}} วินาที",
-    "askAi": "ถาม AI"
+    "askAi": "ถาม AI",
+    "readOnlyLabel": "อ่านอย่างเดียว"
   },
   "edit": {
     "setNull": "ตั้งเป็น NULL",

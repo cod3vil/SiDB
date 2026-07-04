@@ -419,6 +419,7 @@ impl DbAdapter for MySqlAdapter {
                     } else {
                         TableKind::Table
                     },
+                    is_super: false,
                 })
             })
             .collect())

@@ -59,9 +59,21 @@ interface FormState {
 
 const KIND_DEFAULTS: Record<DbKind, Partial<FormState>> = {
   mysql: { port: "3306", user: "root", sslMode: "prefer" },
+  mariadb: { port: "3306", user: "root", sslMode: "prefer" },
   postgres: { port: "5432", user: "postgres", schema: "public", sslMode: "prefer" },
   sqlite: {},
   redis: { port: "6379", user: "", database: "0", sslMode: "disable" },
+  tdengine: { port: "6041", user: "root", sslMode: "disable" },
+};
+
+/** 数据库类型的显示名（下拉用）。 */
+const KIND_LABELS: Record<DbKind, string> = {
+  mysql: "MySQL",
+  mariadb: "MariaDB",
+  postgres: "PostgreSQL",
+  sqlite: "SQLite",
+  redis: "Redis",
+  tdengine: "TDengine",
 };
 
 function initState(initial?: ConnConfig | null, initialGroup?: string | null): FormState {
@@ -116,7 +128,7 @@ function initState(initial?: ConnConfig | null, initialGroup?: string | null): F
   };
 }
 
-const KINDS: DbKind[] = ["mysql", "postgres", "sqlite", "redis"];
+const KINDS: DbKind[] = ["mysql", "mariadb", "postgres", "sqlite", "redis", "tdengine"];
 
 export function ConnectionDialog({ initial, initialGroup, onClose, onSaved }: Props) {
   const { t } = useTranslation();
@@ -245,7 +257,7 @@ export function ConnectionDialog({ initial, initialGroup, onClose, onSaved }: Pr
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
       <div
-        className="flex h-[560px] max-h-[90vh] w-[460px] flex-col overflow-hidden rounded-xl border border-border bg-card shadow-2xl"
+        className="flex h-[620px] max-h-[90vh] w-[460px] flex-col overflow-hidden rounded-xl border border-border bg-card shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="shrink-0 px-5 py-3 border-b border-border">
@@ -269,21 +281,20 @@ export function ConnectionDialog({ initial, initialGroup, onClose, onSaved }: Pr
           {/* 常规 */}
           {tab === "general" && (
             <>
-              <div className="flex gap-1.5">
-                {KINDS.map((k) => (
-                  <button
-                    key={k}
-                    onClick={() => pickKind(k)}
-                    className={`flex-1 rounded-md px-3 py-1.5 text-xs font-medium capitalize transition ${
-                      f.kind === k
-                        ? "bg-primary text-primary-foreground"
-                        : "bg-secondary text-secondary-foreground hover:bg-accent"
-                    }`}
-                  >
-                    {k}
-                  </button>
-                ))}
-              </div>
+              <Field label={t("conn.kind")}>
+                <UiSelect value={f.kind} onValueChange={(v) => pickKind(v as DbKind)}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {KINDS.map((k) => (
+                      <SelectItem key={k} value={k}>
+                        {KIND_LABELS[k]}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </UiSelect>
+              </Field>
 
               <Field label={t("conn.name")}>
                 <Input value={f.name} onChange={(v) => set({ name: v })} placeholder="My Database" autoFocus />

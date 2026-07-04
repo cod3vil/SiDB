@@ -107,7 +107,12 @@ export default {
     "dropTableConfirm": "¿Eliminar «{{name}}»? No se puede deshacer: se borran estructura y datos.",
     "emptyConfirm": "¿Borrar todas las filas de «{{name}}»? (DELETE, conserva la estructura)",
     "truncateConfirm": "¿Truncar «{{name}}»? (TRUNCATE: borra datos, reinicia el autoincremento, no reversible)",
-    "newSchema": "Nuevo esquema"
+    "newSchema": "Nuevo esquema",
+    "superTable": "supertabla",
+    "noChildTables": "Sin subtablas",
+    "last1h": "Última 1 hora",
+    "last24h": "Últimas 24 horas",
+    "last7d": "Últimos 7 días"
   },
   "export": {
     "title": "Exportar",
@@ -234,7 +239,8 @@ export default {
     "affectedRows": "Filas afectadas: {{n}}",
     "lastInsertId": "Último id insertado: {{n}}",
     "time": "Tiempo: {{s}}s",
-    "askAi": "Preguntar a la IA"
+    "askAi": "Preguntar a la IA",
+    "readOnlyLabel": "Solo lectura"
   },
   "edit": {
     "setNull": "Establecer NULL",

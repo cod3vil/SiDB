@@ -33,7 +33,7 @@ export function NewDatabaseDialog({ connId, kind, quoteChar, onClose, onCreated 
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
-  const isMysql = kind === "mysql";
+  const isMysql = kind === "mysql" || kind === "mariadb";
   const sql =
     `CREATE DATABASE ${name.trim() ? quoteIdent(name.trim(), quoteChar) : "<name>"}` +
     (isMysql && name.trim() ? ` CHARACTER SET ${charset}` : "");

@@ -107,7 +107,12 @@ export default {
     "dropTableConfirm": "„{{name}}“ löschen? Dies kann nicht rückgängig gemacht werden – Struktur und Daten werden entfernt.",
     "emptyConfirm": "Alle Zeilen von „{{name}}“ löschen? (DELETE, Struktur bleibt)",
     "truncateConfirm": "„{{name}}“ truncieren? (TRUNCATE – löscht Daten, setzt Auto-Increment zurück, nicht rückgängig machbar)",
-    "newSchema": "Neues Schema"
+    "newSchema": "Neues Schema",
+    "superTable": "Super-Tabelle",
+    "noChildTables": "Keine Untertabellen",
+    "last1h": "Letzte 1 Stunde",
+    "last24h": "Letzte 24 Stunden",
+    "last7d": "Letzte 7 Tage"
   },
   "export": {
     "title": "Exportieren",
@@ -234,7 +239,8 @@ export default {
     "affectedRows": "Betroffene Zeilen: {{n}}",
     "lastInsertId": "Letzte Insert-ID: {{n}}",
     "time": "Zeit: {{s}}s",
-    "askAi": "KI fragen"
+    "askAi": "KI fragen",
+    "readOnlyLabel": "Schreibgeschützt"
   },
   "edit": {
     "setNull": "NULL setzen",

@@ -107,7 +107,12 @@ export default {
     "dropTableConfirm": "確定刪除「{{name}}」？此操作無法復原，結構與資料將一併刪除。",
     "emptyConfirm": "確定清空「{{name}}」的全部資料？（DELETE，保留結構）",
     "truncateConfirm": "確定截斷「{{name}}」？（TRUNCATE，清空資料並重設自動遞增，無法回復）",
-    "newSchema": "新增 Schema"
+    "newSchema": "新增 Schema",
+    "superTable": "超級表",
+    "noChildTables": "暫無子表",
+    "last1h": "最近 1 小時",
+    "last24h": "最近 24 小時",
+    "last7d": "最近 7 天"
   },
   "export": {
     "title": "匯出",
@@ -234,7 +239,8 @@ export default {
     "affectedRows": "影響列數：{{n}}",
     "lastInsertId": "最後插入 id：{{n}}",
     "time": "耗時：{{s}} 秒",
-    "askAi": "問 AI"
+    "askAi": "問 AI",
+    "readOnlyLabel": "唯讀"
   },
   "edit": {
     "setNull": "設為 NULL",

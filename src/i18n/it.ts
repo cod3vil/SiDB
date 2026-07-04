@@ -107,7 +107,12 @@ export default {
     "dropTableConfirm": "Eliminare «{{name}}»? Operazione irreversibile: struttura e dati vengono rimossi.",
     "emptyConfirm": "Eliminare tutte le righe di «{{name}}»? (DELETE, mantiene la struttura)",
     "truncateConfirm": "Troncare «{{name}}»? (TRUNCATE: cancella i dati, azzera l’auto-incremento, non annullabile)",
-    "newSchema": "Nuovo schema"
+    "newSchema": "Nuovo schema",
+    "superTable": "super-tabella",
+    "noChildTables": "Nessuna sotto-tabella",
+    "last1h": "Ultima ora",
+    "last24h": "Ultime 24 ore",
+    "last7d": "Ultimi 7 giorni"
   },
   "export": {
     "title": "Esporta",
@@ -234,7 +239,8 @@ export default {
     "affectedRows": "Righe interessate: {{n}}",
     "lastInsertId": "Ultimo id inserito: {{n}}",
     "time": "Tempo: {{s}}s",
-    "askAi": "Chiedi all’IA"
+    "askAi": "Chiedi all’IA",
+    "readOnlyLabel": "Sola lettura"
   },
   "edit": {
     "setNull": "Imposta NULL",

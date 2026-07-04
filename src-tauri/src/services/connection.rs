@@ -211,10 +211,11 @@ pub fn build_target(
 
 pub fn default_port(kind: DbKind) -> u16 {
     match kind {
-        DbKind::Mysql => 3306,
+        DbKind::Mysql | DbKind::Mariadb => 3306,
         DbKind::Postgres => 5432,
         DbKind::Sqlite => 0,
         DbKind::Redis => 6379,
+        DbKind::Tdengine => 6041,
     }
 }
 

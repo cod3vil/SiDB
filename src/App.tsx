@@ -835,6 +835,29 @@ export default function App() {
     updateTab(tab.id, { databases: ctx.databases, schemas: ctx.schemas, tables: ctx.tables });
   };
 
+  // 快捷查询（如 TDengine 时间范围）：新开标签、填入 SQL、连上后立即执行。
+  const openQuickQuery = async (connId: string, database: string | null, title: string, sql: string) => {
+    const c = await ensureConnected(connId);
+    if (!c) return;
+    const n = ++seqRef.current;
+    const tab = blankTab(n, { title, connId, db: database, sql });
+    setTabs((ts) => [...ts, tab]);
+    setActiveTabId(tab.id);
+    const ctx = await loadContext(connId, c, database, null);
+    updateTab(tab.id, {
+      databases: ctx.databases,
+      schemas: ctx.schemas,
+      tables: ctx.tables,
+      running: true,
+    });
+    try {
+      const results = await ipc.runSql(connId, tab.id, sql, 0, PAGE_SIZE, database, null);
+      updateTab(tab.id, { results, activeResult: 0, running: false });
+    } catch (e) {
+      updateTab(tab.id, { error: errorMessage(e), running: false });
+    }
+  };
+
   // 右击连接「运行 SQL 文件」：选 .sql → 新建 tab → 在该连接当前库执行全部。
   const runSqlFile = async (connId: string, database: string | null) => {
     const path = await openFileDialog({ filters: [{ name: "SQL", extensions: ["sql"] }] });
@@ -1067,6 +1090,7 @@ export default function App() {
             onExportStructure={exportStructure}
             onRunSqlFile={runSqlFile}
             onOpenRedis={openRedis}
+            onQuickQuery={openQuickQuery}
             onNewConnection={(group) => setDialog({ cfg: null, group })}
             onEditConnection={(c) => setDialog({ cfg: c })}
           />

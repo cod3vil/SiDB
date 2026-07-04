@@ -63,6 +63,7 @@ pub fn run() {
             commands::list_databases,
             commands::list_schemas,
             commands::list_tables,
+            commands::list_child_tables,
             commands::list_functions,
             commands::list_columns,
             commands::get_table_schema,

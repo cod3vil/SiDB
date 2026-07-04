@@ -431,6 +431,7 @@ impl DbAdapter for PostgresAdapter {
                     } else {
                         TableKind::Table
                     },
+                    is_super: false,
                 })
             })
             .collect())

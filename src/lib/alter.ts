@@ -83,7 +83,7 @@ export function buildAlterStatements(
     const renamed = name !== c.origName;
     const changed = isChanged(c, o);
 
-    if (kind === "mysql") {
+    if ((kind === "mysql" || kind === "mariadb")) {
       if (renamed) {
         alter(`CHANGE COLUMN ${quoteIdent(c.origName, q)} ${quoteIdent(name, q)} ${colDef(c)}`);
       } else if (changed) {
@@ -142,7 +142,7 @@ export function buildIndexStatements(
 
   const dropIdx = (name: string) => {
     // MySQL：DROP INDEX 需带表名（ALTER 形式）；PG/SQLite：DROP INDEX name。
-    if (kind === "mysql") stmts.push(`ALTER TABLE ${qt} DROP INDEX ${quoteIdent(name, q)};`);
+    if ((kind === "mysql" || kind === "mariadb")) stmts.push(`ALTER TABLE ${qt} DROP INDEX ${quoteIdent(name, q)};`);
     else stmts.push(`DROP INDEX ${quoteIdent(name, q)};`);
   };
   const createIdx = (e: IdxEdit) => {
@@ -150,7 +150,7 @@ export function buildIndexStatements(
     const uniq = e.unique ? "UNIQUE " : "";
     const m = e.method.trim();
     // MySQL：USING 在 ON 之前；PostgreSQL：USING 在表名之后、列之前。
-    if (m && kind === "mysql") {
+    if (m && (kind === "mysql" || kind === "mariadb")) {
       stmts.push(`CREATE ${uniq}INDEX ${quoteIdent(e.name, q)} USING ${m} ON ${qt} (${cols});`);
     } else if (m) {
       stmts.push(`CREATE ${uniq}INDEX ${quoteIdent(e.name, q)} ON ${qt} USING ${m} (${cols});`);
@@ -212,7 +212,7 @@ export function buildForeignKeyStatements(
 
   const dropFk = (name: string) => {
     // MySQL：DROP FOREIGN KEY；PG：DROP CONSTRAINT。
-    const clause = kind === "mysql" ? "DROP FOREIGN KEY" : "DROP CONSTRAINT";
+    const clause = (kind === "mysql" || kind === "mariadb") ? "DROP FOREIGN KEY" : "DROP CONSTRAINT";
     stmts.push(`ALTER TABLE ${qt} ${clause} ${quoteIdent(name, q)};`);
   };
   const addFk = (e: FkEdit) => {
@@ -256,7 +256,7 @@ export function buildOptionStatements(
   const stmts: string[] = [];
   const norm = (s: string | null) => (s ?? "").trim();
 
-  if (kind === "mysql") {
+  if ((kind === "mysql" || kind === "mariadb")) {
     const parts: string[] = [];
     if (norm(edited.engine) && norm(edited.engine) !== norm(original.engine)) {
       parts.push(`ENGINE = ${edited.engine!.trim()}`);

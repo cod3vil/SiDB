@@ -107,7 +107,12 @@ export default {
     "dropTableConfirm": "“{{name}}” silinsin mi? Geri alınamaz — yapı ve veriler kaldırılır.",
     "emptyConfirm": "“{{name}}” tablosunun tüm satırları silinsin mi? (DELETE, yapı korunur)",
     "truncateConfirm": "“{{name}}” truncate edilsin mi? (TRUNCATE: veriyi siler, auto-increment'i sıfırlar, geri alınamaz)",
-    "newSchema": "Yeni şema"
+    "newSchema": "Yeni şema",
+    "superTable": "süper tablo",
+    "noChildTables": "Alt tablo yok",
+    "last1h": "Son 1 saat",
+    "last24h": "Son 24 saat",
+    "last7d": "Son 7 gün"
   },
   "export": {
     "title": "Dışa Aktar",
@@ -234,7 +239,8 @@ export default {
     "affectedRows": "Etkilenen satırlar: {{n}}",
     "lastInsertId": "Son eklenen id: {{n}}",
     "time": "Süre: {{s}}sn",
-    "askAi": "Yapay zekâya sor"
+    "askAi": "Yapay zekâya sor",
+    "readOnlyLabel": "Salt okunur"
   },
   "edit": {
     "setNull": "NULL yap",

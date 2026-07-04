@@ -107,7 +107,12 @@ export default {
     "dropTableConfirm": "Supprimer « {{name}} » ? Action irréversible : structure et données sont effacées.",
     "emptyConfirm": "Supprimer toutes les lignes de « {{name}} » ? (DELETE, conserve la structure)",
     "truncateConfirm": "Tronquer « {{name}} » ? (TRUNCATE : efface les données, réinitialise l’auto-incrément, non annulable)",
-    "newSchema": "Nouveau schéma"
+    "newSchema": "Nouveau schéma",
+    "superTable": "super-table",
+    "noChildTables": "Aucune sous-table",
+    "last1h": "Dernière heure",
+    "last24h": "Dernières 24 heures",
+    "last7d": "7 derniers jours"
   },
   "export": {
     "title": "Exporter",
@@ -234,7 +239,8 @@ export default {
     "affectedRows": "Lignes affectées : {{n}}",
     "lastInsertId": "Dernier id inséré : {{n}}",
     "time": "Temps : {{s}} s",
-    "askAi": "Demander à l’IA"
+    "askAi": "Demander à l’IA",
+    "readOnlyLabel": "Lecture seule"
   },
   "edit": {
     "setNull": "Définir NULL",

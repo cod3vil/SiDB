@@ -107,7 +107,12 @@ export default {
     "dropTableConfirm": "“{{name}}” हटाएँ? यह पूर्ववत नहीं होगा — संरचना और डेटा हट जाएँगे।",
     "emptyConfirm": "“{{name}}” की सभी पंक्तियाँ हटाएँ? (DELETE, संरचना बनी रहती है)",
     "truncateConfirm": "“{{name}}” truncate करें? (TRUNCATE: डेटा मिटाता है, auto-increment रीसेट करता है, रोलबैक नहीं होता)",
-    "newSchema": "नया Schema"
+    "newSchema": "नया Schema",
+    "superTable": "सुपर टेबल",
+    "noChildTables": "कोई चाइल्ड टेबल नहीं",
+    "last1h": "पिछला 1 घंटा",
+    "last24h": "पिछले 24 घंटे",
+    "last7d": "पिछले 7 दिन"
   },
   "export": {
     "title": "एक्सपोर्ट",
@@ -234,7 +239,8 @@ export default {
     "affectedRows": "प्रभावित पंक्तियाँ: {{n}}",
     "lastInsertId": "अंतिम इन्सर्ट आईडी: {{n}}",
     "time": "समय: {{s}}s",
-    "askAi": "AI से पूछें"
+    "askAi": "AI से पूछें",
+    "readOnlyLabel": "केवल-पढ़ने योग्य"
   },
   "edit": {
     "setNull": "NULL सेट करें",

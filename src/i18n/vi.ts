@@ -107,7 +107,12 @@ export default {
     "dropTableConfirm": "Xóa “{{name}}”? Không thể hoàn tác — cấu trúc và dữ liệu sẽ bị xóa.",
     "emptyConfirm": "Xóa tất cả các dòng của “{{name}}”? (DELETE, giữ cấu trúc)",
     "truncateConfirm": "Truncate “{{name}}”? (TRUNCATE: xóa dữ liệu, đặt lại auto-increment, không thể hoàn tác)",
-    "newSchema": "Schema mới"
+    "newSchema": "Schema mới",
+    "superTable": "siêu bảng",
+    "noChildTables": "Không có bảng con",
+    "last1h": "1 giờ qua",
+    "last24h": "24 giờ qua",
+    "last7d": "7 ngày qua"
   },
   "export": {
     "title": "Xuất",
@@ -234,7 +239,8 @@ export default {
     "affectedRows": "Số dòng bị ảnh hưởng: {{n}}",
     "lastInsertId": "ID chèn cuối: {{n}}",
     "time": "Thời gian: {{s}}s",
-    "askAi": "Hỏi AI"
+    "askAi": "Hỏi AI",
+    "readOnlyLabel": "Chỉ đọc"
   },
   "edit": {
     "setNull": "Đặt NULL",
