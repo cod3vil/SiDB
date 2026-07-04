@@ -67,7 +67,12 @@ impl TdengineAdapter {
     /// 执行一条 SQL，返回原始 REST 响应。`db` 非空时进 URL（限定默认库）。
     async fn rest(&self, sql: &str) -> Result<RestResp> {
         let base = self.base_url()?;
-        let auth = self.auth.lock().ok().and_then(|g| g.clone()).unwrap_or_default();
+        let auth = self
+            .auth
+            .lock()
+            .ok()
+            .and_then(|g| g.clone())
+            .unwrap_or_default();
         let db = self.db.lock().ok().and_then(|g| g.clone());
         let url = match db.as_deref().filter(|s| !s.is_empty()) {
             Some(d) => format!("{base}/rest/sql/{d}"),
@@ -93,7 +98,9 @@ impl TdengineAdapter {
             .map_err(|e| AppError::Internal(format!("tdengine 响应解析失败: {e}; body={body}")))?;
         if parsed.code != 0 {
             return Err(AppError::Sql {
-                message: parsed.desc.unwrap_or_else(|| format!("code {}", parsed.code)),
+                message: parsed
+                    .desc
+                    .unwrap_or_else(|| format!("code {}", parsed.code)),
                 position: None,
             });
         }
@@ -147,12 +154,24 @@ fn base64_encode(input: &[u8]) -> String {
     const T: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut out = String::with_capacity((input.len() + 2) / 3 * 4);
     for chunk in input.chunks(3) {
-        let b = [chunk[0], *chunk.get(1).unwrap_or(&0), *chunk.get(2).unwrap_or(&0)];
+        let b = [
+            chunk[0],
+            *chunk.get(1).unwrap_or(&0),
+            *chunk.get(2).unwrap_or(&0),
+        ];
         let n = ((b[0] as u32) << 16) | ((b[1] as u32) << 8) | b[2] as u32;
         out.push(T[(n >> 18 & 63) as usize] as char);
         out.push(T[(n >> 12 & 63) as usize] as char);
-        out.push(if chunk.len() > 1 { T[(n >> 6 & 63) as usize] as char } else { '=' });
-        out.push(if chunk.len() > 2 { T[(n & 63) as usize] as char } else { '=' });
+        out.push(if chunk.len() > 1 {
+            T[(n >> 6 & 63) as usize] as char
+        } else {
+            '='
+        });
+        out.push(if chunk.len() > 2 {
+            T[(n & 63) as usize] as char
+        } else {
+            '='
+        });
     }
     out
 }
@@ -195,10 +214,18 @@ impl DbAdapter for TdengineAdapter {
     }
 
     async fn connect(&mut self, target: &ConnTarget) -> Result<()> {
-        let scheme = if matches!(target.ssl_mode, SslMode::Require) { "https" } else { "http" };
+        let scheme = if matches!(target.ssl_mode, SslMode::Require) {
+            "https"
+        } else {
+            "http"
+        };
         let port = if target.port == 0 { 6041 } else { target.port };
         *self.base.lock().unwrap() = Some(format!("{scheme}://{}:{}", target.host, port));
-        let user = if target.user.is_empty() { "root" } else { &target.user };
+        let user = if target.user.is_empty() {
+            "root"
+        } else {
+            &target.user
+        };
         let pass = target.password.clone().unwrap_or_else(|| "taosdata".into());
         let token = base64_encode(format!("{user}:{pass}").as_bytes());
         *self.auth.lock().unwrap() = Some(format!("Basic {token}"));
@@ -282,10 +309,18 @@ impl DbAdapter for TdengineAdapter {
             .unwrap_or_default();
         let mut out: Vec<TableInfo> = Vec::new();
         for name in stables {
-            out.push(TableInfo { name, kind: TableKind::Table, is_super: true });
+            out.push(TableInfo {
+                name,
+                kind: TableKind::Table,
+                is_super: true,
+            });
         }
         for name in normal {
-            out.push(TableInfo { name, kind: TableKind::Table, is_super: false });
+            out.push(TableInfo {
+                name,
+                kind: TableKind::Table,
+                is_super: false,
+            });
         }
         Ok(out)
     }
@@ -301,7 +336,8 @@ impl DbAdapter for TdengineAdapter {
             ))
             .await?;
         // 一次拉取全部标签（table_name, tag_name, tag_value），按子表聚合成 "k=v, k=v"。
-        let mut tags: std::collections::HashMap<String, Vec<String>> = std::collections::HashMap::new();
+        let mut tags: std::collections::HashMap<String, Vec<String>> =
+            std::collections::HashMap::new();
         if let Ok(resp) = self
             .rest(&format!(
                 "SELECT table_name, tag_name, tag_value FROM information_schema.ins_tags \
@@ -310,7 +346,12 @@ impl DbAdapter for TdengineAdapter {
             .await
         {
             for row in resp.data {
-                let get = |i: usize| row.get(i).and_then(|v| v.as_str()).unwrap_or("").to_string();
+                let get = |i: usize| {
+                    row.get(i)
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string()
+                };
                 let (tbl, name, val) = (get(0), get(1), get(2));
                 if !tbl.is_empty() {
                     tags.entry(tbl).or_default().push(format!("{name}={val}"));
@@ -339,7 +380,11 @@ impl DbAdapter for TdengineAdapter {
             .into_iter()
             .filter_map(|row| {
                 let name = row.first()?.as_str()?.to_string();
-                let db_type = row.get(1).and_then(|v| v.as_str()).unwrap_or("").to_string();
+                let db_type = row
+                    .get(1)
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
                 let note = row.get(3).and_then(|v| v.as_str()).unwrap_or("");
                 Some(ColumnInfo {
                     value_kind: super::type_map::tdengine_kind(&db_type).to_string(),
