@@ -152,7 +152,7 @@ impl TdengineAdapter {
 /// 标准 base64 编码（用于 Basic 授权头，避免额外依赖 base64 crate）。
 fn base64_encode(input: &[u8]) -> String {
     const T: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut out = String::with_capacity((input.len() + 2) / 3 * 4);
+    let mut out = String::with_capacity(input.len().div_ceil(3) * 4);
     for chunk in input.chunks(3) {
         let b = [
             chunk[0],
