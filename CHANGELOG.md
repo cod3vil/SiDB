@@ -5,6 +5,16 @@ This project follows semantic versioning. Dates are release dates.
 
 ---
 
+## v1.2.11
+
+**中文**
+- AI 助手：新增「最大工具往返轮数」与「每轮 max_tokens」两项设置（设置 → AI），默认 20 / 4096。此前工具轮数硬编码为 8，复杂问题易触发「已达到工具调用上限」；现可自行调高。
+- 两项设置纳入配置备份 / 恢复，旧备份自动回落默认值。
+
+**English**
+- AI assistant: added "max tool rounds" and "max tokens per round" settings (Settings → AI), defaulting to 20 / 4096. The tool-round count was previously hardcoded at 8, which could hit "tool-call limit reached" on complex questions; it's now adjustable.
+- Both settings are included in config backup / restore; older backups fall back to defaults.
+
 ## v1.2.10
 
 **中文**
