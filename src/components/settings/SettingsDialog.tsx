@@ -116,7 +116,7 @@ export function SettingsDialog({ onClose }: Props) {
           base_url: needsBaseUrl ? baseUrl.trim() || null : null,
           key_configured: keyConfigured,
           max_iters: Math.min(50, Math.max(1, parseInt(maxIters || "0", 10) || 20)),
-          max_tokens: Math.min(32768, Math.max(256, parseInt(maxTokens || "0", 10) || 4096)),
+          max_tokens: Math.min(1000000, Math.max(256, parseInt(maxTokens || "0", 10) || 4096)),
         },
       });
       toast.success(t("settings.saved"));

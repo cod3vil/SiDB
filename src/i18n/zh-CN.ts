@@ -266,7 +266,7 @@ export default {
     maxIters: "最大工具轮数",
     maxItersHint: "每次提问模型↔工具最多往返轮数（1-50）。",
     maxTokens: "每轮最大 Token",
-    maxTokensHint: "单次模型回复的 token 上限（256-32768）。",
+    maxTokensHint: "单次模型回复的 token 上限。",
     model: "模型",
     testConn: "测试连通",
     testing: "测试中…",

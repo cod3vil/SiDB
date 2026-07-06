@@ -266,7 +266,7 @@ export default {
     maxIters: "Max tool rounds",
     maxItersHint: "Max model↔tool round-trips per question (1-50).",
     maxTokens: "Max tokens / round",
-    maxTokensHint: "Token limit per model reply (256-32768).",
+    maxTokensHint: "Max tokens per model reply.",
     model: "Model",
     testConn: "Test",
     testing: "Testing…",
