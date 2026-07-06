@@ -1,6 +1,6 @@
 // 前端 DTO 类型 —— 与 Rust models.rs 手工对齐（一期不引代码生成，TDD §9）。
 
-export type DbKind = "mysql" | "mariadb" | "postgres" | "sqlite" | "redis" | "tdengine";
+export type DbKind = "mysql" | "mariadb" | "postgres" | "sqlite" | "redis" | "tdengine" | "sqlserver";
 
 /** 连接引擎家族：SQL（mysql/pg/sqlite）或 Redis（KV）。由 kind 推导。 */
 export type Engine = "sql" | "redis";

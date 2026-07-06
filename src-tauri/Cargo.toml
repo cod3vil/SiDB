@@ -1,6 +1,6 @@
 [package]
 name = "sidb"
-version = "1.2.9"
+version = "1.2.10"
 description = "轻量级跨平台数据库客户端"
 authors = ["SiDB"]
 edition = "2021"
@@ -25,7 +25,7 @@ tauri-plugin-dialog = "2"
 
 # Async runtime
 tokio = { version = "1", features = ["full"] }
-tokio-util = "0.7"
+tokio-util = { version = "0.7", features = ["compat"] }
 async-trait = "0.1"
 futures = "0.3"
 
@@ -39,6 +39,14 @@ sqlx = { version = "0.8", default-features = false, features = [
   "rust_decimal",
   "json",
   "uuid",
+] }
+
+# SQL Server（T-SQL）——纯 Rust 驱动 tiberius，rustls TLS，避免原生 openssl 交叉编译。
+tiberius = { version = "0.12", default-features = false, features = [
+  "tds73",
+  "rustls",
+  "chrono",
+  "rust_decimal",
 ] }
 
 # Redis (KV 引擎，单机 standalone)。raw command + connection-manager + rustls TLS。

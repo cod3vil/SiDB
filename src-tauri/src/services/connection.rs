@@ -216,6 +216,7 @@ pub fn default_port(kind: DbKind) -> u16 {
         DbKind::Sqlite => 0,
         DbKind::Redis => 6379,
         DbKind::Tdengine => 6041,
+        DbKind::Sqlserver => 1433,
     }
 }
 

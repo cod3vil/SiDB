@@ -115,6 +115,27 @@ pub fn sqlite_kind(type_name: &str) -> &'static str {
     "Text"
 }
 
+/// SQL Server（T-SQL）类型 → value_kind。
+///
+/// `bit` → Bool；整数族 → Int；`decimal/numeric/money` → Decimal；`float/real` → Float；
+/// `date` → Date；`time` → Time；`datetime*`/`smalldatetime` → DateTime；
+/// 二进制族 → Bytes；其余（含 `uniqueidentifier`/`xml`/`text`）→ Text。
+pub fn sqlserver_kind(type_name: &str) -> &'static str {
+    match base(type_name).as_str() {
+        "bit" => "Bool",
+        "tinyint" | "smallint" | "int" | "bigint" => "Int",
+        "decimal" | "numeric" | "money" | "smallmoney" => "Decimal",
+        "float" | "real" => "Float",
+        "date" => "Date",
+        "time" => "Time",
+        "datetime" | "datetime2" | "smalldatetime" | "datetimeoffset" => "DateTime",
+        "binary" | "varbinary" | "image" | "timestamp" | "rowversion" => "Bytes",
+        "char" | "varchar" | "nchar" | "nvarchar" | "text" | "ntext" | "uniqueidentifier"
+        | "xml" | "sql_variant" => "Text",
+        _ => "Text",
+    }
+}
+
 /// 零日期判定（MySQL `0000-00-00` / `0000-00-00 00:00:00`）：保留原样字符串 + 标注。
 pub fn is_mysql_zero_date(s: &str) -> bool {
     let t = s.trim();
@@ -169,6 +190,20 @@ mod tests {
         assert_eq!(sqlite_kind("NUMERIC"), "Decimal");
         assert_eq!(sqlite_kind("DECIMAL(10,5)"), "Decimal");
         assert_eq!(sqlite_kind(""), "Text");
+    }
+
+    #[test]
+    fn sqlserver_types() {
+        assert_eq!(sqlserver_kind("bit"), "Bool");
+        assert_eq!(sqlserver_kind("int"), "Int");
+        assert_eq!(sqlserver_kind("bigint"), "Int");
+        assert_eq!(sqlserver_kind("decimal(10,2)"), "Decimal");
+        assert_eq!(sqlserver_kind("money"), "Decimal");
+        assert_eq!(sqlserver_kind("float"), "Float");
+        assert_eq!(sqlserver_kind("nvarchar(255)"), "Text");
+        assert_eq!(sqlserver_kind("uniqueidentifier"), "Text");
+        assert_eq!(sqlserver_kind("datetime2"), "DateTime");
+        assert_eq!(sqlserver_kind("varbinary(max)"), "Bytes");
     }
 
     #[test]

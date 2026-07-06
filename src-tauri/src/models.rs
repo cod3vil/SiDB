@@ -207,6 +207,8 @@ pub enum ParamStyle {
     Question,
     /// `$1..$n`
     Dollar,
+    /// `@P1..@Pn`（SQL Server / tiberius）
+    AtP,
 }
 
 impl ParamStyle {
@@ -215,6 +217,7 @@ impl ParamStyle {
         match self {
             ParamStyle::Question => "?".to_string(),
             ParamStyle::Dollar => format!("${}", idx + 1),
+            ParamStyle::AtP => format!("@P{}", idx + 1),
         }
     }
 }
@@ -344,6 +347,8 @@ pub enum DbKind {
     Redis,
     /// TDengine（时序库）。走 HTTP REST（taosAdapter），实现 DbAdapter，只读浏览。
     Tdengine,
+    /// SQL Server（T-SQL）。走纯 Rust 的 tiberius 驱动，实现 DbAdapter。
+    Sqlserver,
 }
 
 /// 字节字面量风格：`x'AB'`（MySQL/SQLite）或 `'\xAB'`（PG bytea）。

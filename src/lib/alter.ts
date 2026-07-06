@@ -72,9 +72,10 @@ export function buildAlterStatements(
     const name = c.name.trim();
     if (!name) continue;
 
-    // 新增列
+    // 新增列（SQL Server 的 ADD 不带 COLUMN 关键字）
     if (!c.origName) {
-      alter(`ADD COLUMN ${quoteIdent(name, q)} ${colDef(c)}`);
+      const addKw = kind === "sqlserver" ? "ADD" : "ADD COLUMN";
+      alter(`${addKw} ${quoteIdent(name, q)} ${colDef(c)}`);
       continue;
     }
 
@@ -92,6 +93,22 @@ export function buildAlterStatements(
     } else if (kind === "sqlite") {
       // SQLite ALTER 仅支持改名（类型/约束变更需重建表，UI 已禁用）
       if (renamed) alter(`RENAME COLUMN ${quoteIdent(c.origName, q)} TO ${quoteIdent(name, q)}`);
+    } else if (kind === "sqlserver") {
+      // SQL Server：改名走 sp_rename（对象名 'schema.table.col'，不加引号）；
+      // 类型 / 非空一次性 ALTER COLUMN；默认值为具名约束，仅支持新增（删除需约束名）。
+      if (renamed) {
+        const obj = [table.schema, table.name, c.origName].filter(Boolean).join(".");
+        stmts.push(
+          `EXEC sp_rename '${obj.replace(/'/g, "''")}', '${name.replace(/'/g, "''")}', 'COLUMN';`,
+        );
+      }
+      const ident = quoteIdent(name, q);
+      if (colType(c) !== colType(o) || c.notNull !== o.notNull) {
+        alter(`ALTER COLUMN ${ident} ${colType(c)} ${c.notNull ? "NOT NULL" : "NULL"}`);
+      }
+      if (c.def.trim() && c.def.trim() !== o.def.trim()) {
+        alter(`ADD DEFAULT ${c.def.trim()} FOR ${ident}`);
+      }
     } else {
       // postgres：改名与各项变更拆成独立语句，改名后用新名
       if (renamed) alter(`RENAME COLUMN ${quoteIdent(c.origName, q)} TO ${quoteIdent(name, q)}`);
@@ -141,8 +158,9 @@ export function buildIndexStatements(
   const kept = new Set(edited.filter((e) => e.origName).map((e) => e.origName));
 
   const dropIdx = (name: string) => {
-    // MySQL：DROP INDEX 需带表名（ALTER 形式）；PG/SQLite：DROP INDEX name。
-    if ((kind === "mysql" || kind === "mariadb")) stmts.push(`ALTER TABLE ${qt} DROP INDEX ${quoteIdent(name, q)};`);
+    // MySQL：DROP INDEX 需带表名（ALTER 形式）；SQL Server：DROP INDEX name ON table；PG/SQLite：DROP INDEX name。
+    if (kind === "mysql" || kind === "mariadb") stmts.push(`ALTER TABLE ${qt} DROP INDEX ${quoteIdent(name, q)};`);
+    else if (kind === "sqlserver") stmts.push(`DROP INDEX ${quoteIdent(name, q)} ON ${qt};`);
     else stmts.push(`DROP INDEX ${quoteIdent(name, q)};`);
   };
   const createIdx = (e: IdxEdit) => {

@@ -9,7 +9,7 @@
 
 Tauri 2 · Rust · React — installer is only ~7MB
 
-Supports **MySQL · MariaDB · PostgreSQL · SQLite · Redis · TDengine**
+Supports **MySQL · MariaDB · PostgreSQL · SQL Server · SQLite · Redis · TDengine**
 
 <br />
 
@@ -33,7 +33,7 @@ Thanks to the following AIs:
 ## ✨ Features
 
 ### Connection management
-- Six data sources: MySQL / MariaDB / PostgreSQL / SQLite / Redis / TDengine
+- Seven data sources: MySQL / MariaDB / PostgreSQL / SQL Server / SQLite / Redis / TDengine
 - **SSH tunneling** (password / private-key auth; local port forwarding is transparent to the user)
 - Credentials (passwords, key passphrases, AI API keys) are stored **only in the OS keychain** (macOS Keychain / Windows Credential Manager); never written in plaintext to config files or logs
 - Test connection, grouping, edit, delete (keychain entries are cleaned up on delete)

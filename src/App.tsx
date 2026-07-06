@@ -1360,6 +1360,7 @@ export default function App() {
       {viewDialog && connected[viewDialog.connId] && (
         <NewViewDialog
           connId={viewDialog.connId}
+          kind={configs.find((c) => c.id === viewDialog.connId)?.kind ?? "mysql"}
           quoteChar={connected[viewDialog.connId].quote_char}
           database={viewDialog.database}
           schema={viewDialog.schema}

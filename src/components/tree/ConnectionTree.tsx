@@ -1647,9 +1647,14 @@ function TableItem({
   const newQt = (name: string) =>
     qualifiedTable(quoteChar, table.database ?? null, table.schema ?? null, name);
 
+  const isMssql = kind === "sqlserver";
+
   const run = async (sql: string) => {
     try {
-      await ipc.runSql(connId, "ddl", sql, 0, 1, null);
+      // SQL Server 的 DDL 需在目标库内执行（USE [db]）；其它方言语句已限定，传 null。
+      const db = isMssql ? (table.database ?? null) : null;
+      const sch = isMssql ? (table.schema ?? null) : null;
+      await ipc.runSql(connId, "ddl", sql, 0, 1, db, sch);
       bumpTree();
     } catch (e) {
       toast.error(errorMessage(e));
@@ -1663,12 +1668,19 @@ function TableItem({
     const nm = newName.trim();
     if (!nm || !op) return;
     if (op === "rename") {
-      await run(`ALTER TABLE ${qt} RENAME TO ${quoteIdent(nm, quoteChar)};`);
+      if (isMssql) {
+        // SQL Server：sp_rename（对象名 'schema.table'，仅新名，不带 schema）。
+        const obj = [table.schema, table.name].filter(Boolean).join(".");
+        await run(`EXEC sp_rename '${obj.replace(/'/g, "''")}', '${nm.replace(/'/g, "''")}';`);
+      } else {
+        await run(`ALTER TABLE ${qt} RENAME TO ${quoteIdent(nm, quoteChar)};`);
+      }
     } else {
       // 复制：建同构表 + 拷数据。
       let sql: string;
       if (kind === "mysql" || kind === "mariadb") sql = `CREATE TABLE ${newQt(nm)} LIKE ${qt};\nINSERT INTO ${newQt(nm)} SELECT * FROM ${qt};`;
       else if (kind === "postgres") sql = `CREATE TABLE ${newQt(nm)} (LIKE ${qt} INCLUDING ALL);\nINSERT INTO ${newQt(nm)} SELECT * FROM ${qt};`;
+      else if (isMssql) sql = `SELECT * INTO ${newQt(nm)} FROM ${qt};`; // 丢失约束/主键
       else sql = `CREATE TABLE ${newQt(nm)} AS SELECT * FROM ${qt};`; // sqlite：丢失约束
       await run(sql);
     }

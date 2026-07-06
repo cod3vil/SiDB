@@ -64,6 +64,7 @@ const KIND_DEFAULTS: Record<DbKind, Partial<FormState>> = {
   sqlite: {},
   redis: { port: "6379", user: "", database: "0", sslMode: "disable" },
   tdengine: { port: "6041", user: "root", sslMode: "disable" },
+  sqlserver: { port: "1433", user: "sa", schema: "dbo", sslMode: "prefer" },
 };
 
 /** 数据库类型的显示名（下拉用）。 */
@@ -74,6 +75,7 @@ const KIND_LABELS: Record<DbKind, string> = {
   sqlite: "SQLite",
   redis: "Redis",
   tdengine: "TDengine",
+  sqlserver: "SQL Server",
 };
 
 function initState(initial?: ConnConfig | null, initialGroup?: string | null): FormState {
@@ -128,7 +130,7 @@ function initState(initial?: ConnConfig | null, initialGroup?: string | null): F
   };
 }
 
-const KINDS: DbKind[] = ["mysql", "mariadb", "postgres", "sqlite", "redis", "tdengine"];
+const KINDS: DbKind[] = ["mysql", "mariadb", "postgres", "sqlite", "redis", "tdengine", "sqlserver"];
 
 export function ConnectionDialog({ initial, initialGroup, onClose, onSaved }: Props) {
   const { t } = useTranslation();
@@ -140,6 +142,8 @@ export function ConnectionDialog({ initial, initialGroup, onClose, onSaved }: Pr
   const isSqlite = f.kind === "sqlite";
   const isPg = f.kind === "postgres";
   const isRedis = f.kind === "redis";
+  // PG 与 SQL Server 都有 schema 概念，展示并保存 schema 字段。
+  const hasSchema = isPg || f.kind === "sqlserver";
   const set = (patch: Partial<FormState>) => setF((s) => ({ ...s, ...patch }));
 
   const pickKind = (kind: DbKind) => {
@@ -185,7 +189,7 @@ export function ConnectionDialog({ initial, initialGroup, onClose, onSaved }: Pr
       user: isSqlite ? null : f.user.trim() || null,
       password: isSqlite || !f.password ? null : f.password,
       database: f.database.trim() || null,
-      schema: isPg ? f.schema.trim() || null : null,
+      schema: hasSchema ? f.schema.trim() || null : null,
       ssl_mode: isSqlite ? null : f.sslMode,
       connect_timeout_secs: f.connectTimeout.trim() ? Number(f.connectTimeout) : 10,
       keepalive_secs: Number(f.keepalive) || 0,
@@ -337,7 +341,7 @@ export function ConnectionDialog({ initial, initialGroup, onClose, onSaved }: Pr
                         placeholder={isRedis ? "0" : t("conn.databaseOptional")}
                       />
                     </Field>
-                    {isPg && (
+                    {hasSchema && (
                       <Field label={t("conn.schema")} className="flex-1">
                         <Input value={f.schema} onChange={(v) => set({ schema: v })} />
                       </Field>

@@ -6,6 +6,7 @@
 pub mod mysql;
 pub mod postgres;
 pub mod sqlite;
+pub mod sqlserver;
 pub mod tdengine;
 pub mod type_map;
 
@@ -46,7 +47,20 @@ impl DbCapabilities {
     pub fn quote_table(&self, t: &TableRef) -> Result<String> {
         let mut parts = Vec::new();
         if self.supports_schemas {
-            if let Some(s) = &t.schema {
+            // SQL Server 类（既有 schema，又能会话内切库）：三段式 `db.schema.table` 跨库限定，
+            // 让浏览/编辑无需依赖当前库状态。PG 单连接绑定单库（supports_use_database=false），
+            // 只用 `schema.table`。
+            if self.supports_use_database {
+                if let Some(db) = &t.database {
+                    parts.push(self.quote_ident(db)?);
+                }
+                match &t.schema {
+                    Some(s) => parts.push(self.quote_ident(s)?),
+                    // db 已限定但 schema 缺省：`[db]..[table]` 用默认 schema。
+                    None if t.database.is_some() => parts.push(String::new()),
+                    None => {}
+                }
+            } else if let Some(s) = &t.schema {
                 parts.push(self.quote_ident(s)?);
             }
         } else if self.supports_multi_database {
@@ -144,6 +158,7 @@ pub fn create_adapter(kind: DbKind) -> Box<dyn DbAdapter> {
         DbKind::Postgres => Box::new(postgres::PostgresAdapter::new()),
         DbKind::Sqlite => Box::new(sqlite::SqliteAdapter::new()),
         DbKind::Tdengine => Box::new(tdengine::TdengineAdapter::new()),
+        DbKind::Sqlserver => Box::new(sqlserver::SqlServerAdapter::new()),
         // Redis 不是 SQL adapter；连接路由在 ConnectionManager 层分叉，绝不会走到这里。
         DbKind::Redis => unreachable!("redis uses RedisAdapter, not create_adapter"),
     }
@@ -199,6 +214,42 @@ mod tests {
             name: "users".into(),
         };
         assert_eq!(pg_caps().quote_table(&t).unwrap(), r#""public"."users""#);
+    }
+
+    fn mssql_caps() -> DbCapabilities {
+        DbCapabilities {
+            supports_ssh: true,
+            supports_cancel: false,
+            supports_schemas: true,
+            supports_multi_database: true,
+            supports_use_database: true,
+            param_style: ParamStyle::AtP,
+            quote_char: '"',
+            has_rowid_fallback: false,
+        }
+    }
+
+    #[test]
+    fn quote_table_sqlserver_three_part() {
+        let t = TableRef {
+            database: Some("shop".into()),
+            schema: Some("dbo".into()),
+            name: "orders".into(),
+        };
+        assert_eq!(
+            mssql_caps().quote_table(&t).unwrap(),
+            r#""shop"."dbo"."orders""#
+        );
+        // schema 缺省时用 db..table。
+        let t2 = TableRef {
+            database: Some("shop".into()),
+            schema: None,
+            name: "orders".into(),
+        };
+        assert_eq!(
+            mssql_caps().quote_table(&t2).unwrap(),
+            r#""shop".."orders""#
+        );
     }
 
     #[test]

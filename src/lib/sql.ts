@@ -6,7 +6,8 @@ export function quoteIdent(name: string, quoteChar: string): string {
   return q + name.split(q).join(q + q) + q;
 }
 
-/** 限定表名：PG 用 schema.table，MySQL 用 db.table，SQLite 裸名。 */
+/** 限定表名：PG / SQL Server 用 schema.table，MySQL 用 db.table，SQLite 裸名。
+ *  （SQL Server 的 DDL 不支持跨库三段式，改由执行时 `USE [db]` 切库 + 两段式 schema.table。） */
 export function qualifiedTable(
   quoteChar: string,
   database: string | null,
@@ -23,6 +24,7 @@ export const TYPES: Record<string, string[]> = {
   mysql: ["INT", "BIGINT", "TINYINT", "SMALLINT", "DECIMAL", "FLOAT", "DOUBLE", "VARCHAR", "CHAR", "TEXT", "LONGTEXT", "DATE", "DATETIME", "TIMESTAMP", "TIME", "BOOLEAN", "JSON", "BLOB"],
   postgres: ["integer", "bigint", "smallint", "serial", "bigserial", "numeric", "real", "double precision", "varchar", "char", "text", "date", "timestamp", "timestamptz", "time", "boolean", "jsonb", "uuid", "bytea"],
   sqlite: ["INTEGER", "TEXT", "REAL", "NUMERIC", "BLOB"],
+  sqlserver: ["int", "bigint", "smallint", "tinyint", "bit", "decimal", "numeric", "money", "float", "real", "varchar", "nvarchar", "char", "nchar", "text", "date", "datetime", "datetime2", "time", "uniqueidentifier", "varbinary"],
 };
 
 /** 把元数据里的 db_type 拆成「基础类型」和「长度/精度」。

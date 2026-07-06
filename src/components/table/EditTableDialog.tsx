@@ -83,6 +83,7 @@ const INDEX_METHODS: Record<string, string[]> = {
   mariadb: ["BTREE", "HASH"],
   postgres: ["btree", "hash", "gin", "gist", "brin", "spgist"],
   sqlite: [],
+  sqlserver: [],
 };
 
 /** 有序多列选择：已选列以可移除芯片按顺序展示，下拉追加未选列。 */
@@ -301,7 +302,10 @@ export function EditTableDialog({ connId, kind, quoteChar, table, onClose, onSav
     setBusy(true);
     setErr(null);
     try {
-      await ipc.runSql(connId, "ddl", stmts.join("\n"), 0, 1, null);
+      // SQL Server 的 DDL 需在目标库内执行（USE [db]），故传库上下文；其它方言语句已限定，传 null。
+      const ddlDb = kind === "sqlserver" ? (table.database ?? null) : null;
+      const ddlSchema = kind === "sqlserver" ? (table.schema ?? null) : null;
+      await ipc.runSql(connId, "ddl", stmts.join("\n"), 0, 1, ddlDb, ddlSchema);
       onSaved();
     } catch (e) {
       setErr(errorMessage(e));

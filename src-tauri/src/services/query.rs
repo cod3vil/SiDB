@@ -46,19 +46,37 @@ impl Page {
     }
 }
 
-/// 把单条 SELECT 包装为分页查询：`SELECT * FROM (<sql>) AS _t LIMIT n OFFSET m`。
-///
-/// 适用于"自定义 SQL"的分页（TDD §6.2 step 3）。表浏览模式直接拼 LIMIT/OFFSET。
-pub fn wrap_pagination(sql: &str, page: Page) -> String {
-    let sql = sql.trim().trim_end_matches(';');
-    format!(
-        "SELECT * FROM ({sql}) AS _sidb_page LIMIT {} OFFSET {}",
-        page.page_size,
-        page.offset()
-    )
+/// 该方言是否使用 T-SQL 的 `OFFSET…FETCH` 分页（需 `ORDER BY`），而非 `LIMIT/OFFSET`。
+/// 以 `@P` 占位符风格为标记（当前仅 SQL Server）。
+fn uses_offset_fetch(caps: &DbCapabilities) -> bool {
+    matches!(caps.param_style, ParamStyle::AtP)
 }
 
-/// 表浏览：构造 `SELECT * FROM <table> [ORDER BY ...] LIMIT n OFFSET m`。
+/// 把单条 SELECT 包装为分页查询。
+///
+/// - LIMIT/OFFSET 方言：`SELECT * FROM (<sql>) AS _t LIMIT n OFFSET m`。
+/// - SQL Server：`SELECT * FROM (<sql>) AS _t ORDER BY (SELECT NULL) OFFSET m ROWS FETCH NEXT n ROWS ONLY`
+///   （子查询里若已含 ORDER BY 会报错，属自定义查询的已知限制）。
+///
+/// 适用于"自定义 SQL"的分页（TDD §6.2 step 3）。表浏览模式见 [`browse_sql`]。
+pub fn wrap_pagination(caps: &DbCapabilities, sql: &str, page: Page) -> String {
+    let sql = sql.trim().trim_end_matches(';');
+    if uses_offset_fetch(caps) {
+        format!(
+            "SELECT * FROM ({sql}) AS _sidb_page ORDER BY (SELECT NULL) OFFSET {} ROWS FETCH NEXT {} ROWS ONLY",
+            page.offset(),
+            page.page_size
+        )
+    } else {
+        format!(
+            "SELECT * FROM ({sql}) AS _sidb_page LIMIT {} OFFSET {}",
+            page.page_size,
+            page.offset()
+        )
+    }
+}
+
+/// 表浏览：构造分页 `SELECT * FROM <table> [ORDER BY ...]`。
 pub fn browse_sql(
     caps: &DbCapabilities,
     table: &TableRef,
@@ -67,18 +85,32 @@ pub fn browse_sql(
 ) -> Result<String> {
     let qt = caps.quote_table(table)?;
     let mut sql = format!("SELECT * FROM {qt}");
-    if let Some((col, asc)) = sort {
-        let qc = caps.quote_ident(col)?;
-        sql.push_str(&format!(
-            " ORDER BY {qc} {}",
+    let order = match sort {
+        Some((col, asc)) => Some(format!(
+            "{} {}",
+            caps.quote_ident(col)?,
             if asc { "ASC" } else { "DESC" }
+        )),
+        None => None,
+    };
+    if uses_offset_fetch(caps) {
+        // OFFSET…FETCH 必须有 ORDER BY；无排序列时用 `(SELECT NULL)` 占位。
+        sql.push_str(&format!(
+            " ORDER BY {} OFFSET {} ROWS FETCH NEXT {} ROWS ONLY",
+            order.as_deref().unwrap_or("(SELECT NULL)"),
+            page.offset(),
+            page.page_size
+        ));
+    } else {
+        if let Some(o) = order {
+            sql.push_str(&format!(" ORDER BY {o}"));
+        }
+        sql.push_str(&format!(
+            " LIMIT {} OFFSET {}",
+            page.page_size,
+            page.offset()
         ));
     }
-    sql.push_str(&format!(
-        " LIMIT {} OFFSET {}",
-        page.page_size,
-        page.offset()
-    ));
     Ok(sql)
 }
 
@@ -188,7 +220,7 @@ pub async fn run_script(
         let kw = sqlsplit::first_keyword(stmt);
         let started = std::time::Instant::now();
         if is_result_producing(&kw) {
-            let wrapped = wrap_pagination(stmt, page);
+            let wrapped = wrap_pagination(adapter.capabilities(), stmt, page);
             let mut raw = with_timeout(read_timeout, adapter.query(&qid, &wrapped, &[])).await?;
             let returned = raw.rows.len() as u64;
             // 简单单表 SELECT *：解析出表 → 标记主键列（结果元数据不含主键）+ 判定可编辑性。
@@ -281,9 +313,21 @@ mod tests {
         }
     }
 
+    fn mssql_caps() -> DbCapabilities {
+        DbCapabilities {
+            supports_schemas: true,
+            supports_multi_database: true,
+            supports_use_database: true,
+            param_style: ParamStyle::AtP,
+            quote_char: '"',
+            ..caps()
+        }
+    }
+
     #[test]
     fn wrap_pagination_strips_semicolon() {
         let s = wrap_pagination(
+            &caps(),
             "SELECT * FROM t;",
             Page {
                 page: 2,
@@ -293,6 +337,45 @@ mod tests {
         assert_eq!(
             s,
             "SELECT * FROM (SELECT * FROM t) AS _sidb_page LIMIT 100 OFFSET 200"
+        );
+    }
+
+    #[test]
+    fn wrap_pagination_sqlserver_offset_fetch() {
+        let s = wrap_pagination(
+            &mssql_caps(),
+            "SELECT * FROM t",
+            Page {
+                page: 2,
+                page_size: 100,
+            },
+        );
+        assert_eq!(
+            s,
+            "SELECT * FROM (SELECT * FROM t) AS _sidb_page ORDER BY (SELECT NULL) OFFSET 200 ROWS FETCH NEXT 100 ROWS ONLY"
+        );
+    }
+
+    #[test]
+    fn browse_sqlserver_offset_fetch() {
+        let t = TableRef {
+            database: Some("db".into()),
+            schema: Some("dbo".into()),
+            name: "t".into(),
+        };
+        let s = browse_sql(
+            &mssql_caps(),
+            &t,
+            Page {
+                page: 0,
+                page_size: 50,
+            },
+            Some(("id", true)),
+        )
+        .unwrap();
+        assert_eq!(
+            s,
+            r#"SELECT * FROM "db"."dbo"."t" ORDER BY "id" ASC OFFSET 0 ROWS FETCH NEXT 50 ROWS ONLY"#
         );
     }
 

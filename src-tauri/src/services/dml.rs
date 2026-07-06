@@ -145,6 +145,25 @@ pub fn expand_for_preview(stmt: &Stmt) -> String {
             i = j;
             continue;
         }
+        // @Pn 占位符（AtP 风格，SQL Server）
+        if c == b'@'
+            && i + 2 < bytes.len()
+            && (bytes[i + 1] == b'P' || bytes[i + 1] == b'p')
+            && bytes[i + 2].is_ascii_digit()
+        {
+            let mut j = i + 2;
+            while j < bytes.len() && bytes[j].is_ascii_digit() {
+                j += 1;
+            }
+            let n: usize = stmt.sql[i + 2..j].parse().unwrap_or(0);
+            if n >= 1 && n <= stmt.params.len() {
+                result.push_str(&literal(&stmt.params[n - 1]));
+            } else {
+                result.push_str(&stmt.sql[i..j]);
+            }
+            i = j;
+            continue;
+        }
         // ? 占位符（Question 风格）
         if c == b'?' {
             if pi < stmt.params.len() {
@@ -301,6 +320,45 @@ mod tests {
         };
         let p = expand_for_preview(&stmt);
         assert_eq!(p, r#"UPDATE "t" SET "n" = 'o''brien' WHERE "id" = 5"#);
+    }
+
+    fn mssql_caps() -> DbCapabilities {
+        DbCapabilities {
+            supports_use_database: true,
+            param_style: ParamStyle::AtP,
+            quote_char: '"',
+            ..pg_caps()
+        }
+    }
+
+    #[test]
+    fn update_sqlserver_atp_style() {
+        let mut set = BTreeMap::new();
+        set.insert("name".to_string(), Value::Text("bob".into()));
+        let mut key = BTreeMap::new();
+        key.insert("id".to_string(), Value::Int(7));
+        let t = TableRef {
+            database: Some("shop".into()),
+            schema: Some("dbo".into()),
+            name: "users".into(),
+        };
+        let s = build_stmt(&mssql_caps(), &t, &Change::Update { key, set }).unwrap();
+        assert_eq!(
+            s.sql,
+            r#"UPDATE "shop"."dbo"."users" SET "name" = @P1 WHERE "id" = @P2"#
+        );
+    }
+
+    #[test]
+    fn preview_expands_atp() {
+        let stmt = Stmt {
+            sql: r#"UPDATE "t" SET "n" = @P1 WHERE "id" = @P2"#.into(),
+            params: vec![Value::Text("o'brien".into()), Value::Int(5)],
+        };
+        assert_eq!(
+            expand_for_preview(&stmt),
+            r#"UPDATE "t" SET "n" = 'o''brien' WHERE "id" = 5"#
+        );
     }
 
     #[test]

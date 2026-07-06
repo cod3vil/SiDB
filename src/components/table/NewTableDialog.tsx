@@ -42,6 +42,8 @@ export function NewTableDialog({ connId, kind, quoteChar, database, schema, onCl
   const types = TYPES[kind] ?? TYPES.mysql;
   const idRef = useRef(2);
   const isMysql = kind === "mysql" || kind === "mariadb";
+  const isMssql = kind === "sqlserver";
+  const hasAutoInc = isMysql || isMssql;
 
   const [tableName, setTableName] = useState("");
   const [columns, setColumns] = useState<Column[]>([
@@ -65,6 +67,7 @@ export function NewTableDialog({ connId, kind, quoteChar, database, schema, onCl
       let s = `${quoteIdent(c.name.trim(), quoteChar)} ${c.type}`;
       if (c.length.trim()) s += `(${c.length.trim()})`;
       if (isMysql && c.autoInc) s += " AUTO_INCREMENT";
+      else if (isMssql && c.autoInc) s += " IDENTITY(1,1)";
       if (c.notNull) s += " NOT NULL";
       if (c.def.trim()) s += ` DEFAULT ${c.def.trim()}`;
       return s;
@@ -87,7 +90,16 @@ export function NewTableDialog({ connId, kind, quoteChar, database, schema, onCl
     setBusy(true);
     setErr(null);
     try {
-      await ipc.runSql(connId, "ddl", buildSql(), 0, 1, null);
+      // SQL Server 需在目标库内建表（USE [db]）；其它方言语句已限定，传 null。
+      await ipc.runSql(
+        connId,
+        "ddl",
+        buildSql(),
+        0,
+        1,
+        isMssql ? database : null,
+        isMssql ? schema : null,
+      );
       onCreated();
     } catch (e) {
       setErr(errorMessage(e));
@@ -126,7 +138,7 @@ export function NewTableDialog({ connId, kind, quoteChar, database, schema, onCl
             <span className="w-20 flex-1">{t("newobj.colDefault")}</span>
             <span className="w-7 text-center" title={t("newobj.colPk")}>PK</span>
             <span className="w-7 text-center" title={t("newobj.colNotNull")}>NN</span>
-            {isMysql && <span className="w-7 text-center" title={t("newobj.colAutoInc")}>AI</span>}
+            {hasAutoInc && <span className="w-7 text-center" title={t("newobj.colAutoInc")}>AI</span>}
             <span className="w-6" />
           </div>
 
@@ -155,7 +167,7 @@ export function NewTableDialog({ connId, kind, quoteChar, database, schema, onCl
               <div className="flex w-7 justify-center">
                 <input type="checkbox" className="h-3.5 w-3.5 accent-emerald-600" checked={c.notNull} onChange={(e) => patch(c.id, { notNull: e.target.checked })} />
               </div>
-              {isMysql && (
+              {hasAutoInc && (
                 <div className="flex w-7 justify-center">
                   <input type="checkbox" className="h-3.5 w-3.5 accent-emerald-600" checked={c.autoInc} onChange={(e) => patch(c.id, { autoInc: e.target.checked })} />
                 </div>

@@ -415,7 +415,7 @@ pub async fn run_result_export(
         };
         let sql = match &source {
             ExportSource::Table(t) => query::browse_sql(&session.caps, t, pg, None)?,
-            ExportSource::Query(q) => query::wrap_pagination(q, pg),
+            ExportSource::Query(q) => query::wrap_pagination(&session.caps, q, pg),
         };
         let raw = {
             let a = session.adapter.lock().await;

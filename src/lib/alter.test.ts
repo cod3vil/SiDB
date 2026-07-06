@@ -13,6 +13,7 @@ const col = (p: Partial<ColEdit> & { name: string; origName: string | null }): C
 const mysqlTable: TableRef = { database: "app", schema: null, name: "users" };
 const pgTable: TableRef = { database: null, schema: "public", name: "users" };
 const sqliteTable: TableRef = { database: null, schema: null, name: "users" };
+const mssqlTable: TableRef = { database: "app", schema: "dbo", name: "users" };
 
 describe("buildAlterStatements", () => {
   it("无变更时不产出语句", () => {
@@ -74,6 +75,26 @@ describe("buildAlterStatements", () => {
     expect(buildAlterStatements("postgres", '"', pgTable, orig, next)).toEqual([
       'ALTER TABLE "public"."users" ALTER COLUMN "n" DROP NOT NULL;',
       'ALTER TABLE "public"."users" ALTER COLUMN "n" DROP DEFAULT;',
+    ]);
+  });
+
+  it("SQL Server 改名走 sp_rename，类型/非空用 ALTER COLUMN，默认值 ADD DEFAULT", () => {
+    const orig = [col({ name: "name", origName: "name", type: "varchar", length: "50", notNull: false, def: "" })];
+    const next = [
+      col({ name: "title", origName: "name", type: "nvarchar", length: "100", notNull: true, def: "'x'" }),
+    ];
+    expect(buildAlterStatements("sqlserver", '"', mssqlTable, orig, next)).toEqual([
+      `EXEC sp_rename 'dbo.users.name', 'title', 'COLUMN';`,
+      'ALTER TABLE "dbo"."users" ALTER COLUMN "title" nvarchar(100) NOT NULL;',
+      `ALTER TABLE "dbo"."users" ADD DEFAULT 'x' FOR "title";`,
+    ]);
+  });
+
+  it("SQL Server 新增列（两段式 schema.table，无库前缀）", () => {
+    const orig = [col({ name: "id", origName: "id" })];
+    const next = [orig[0], col({ name: "age", origName: null, type: "int", notNull: true, def: "0" })];
+    expect(buildAlterStatements("sqlserver", '"', mssqlTable, orig, next)).toEqual([
+      'ALTER TABLE "dbo"."users" ADD "age" int NOT NULL DEFAULT 0;',
     ]);
   });
 

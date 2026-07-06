@@ -11,6 +11,7 @@ import { Label } from "@/components/ui/label";
 
 interface Props {
   connId: string;
+  kind: string;
   quoteChar: string;
   database: string | null;
   schema: string | null;
@@ -18,7 +19,7 @@ interface Props {
   onCreated: () => void;
 }
 
-export function NewViewDialog({ connId, quoteChar, database, schema, onClose, onCreated }: Props) {
+export function NewViewDialog({ connId, kind, quoteChar, database, schema, onClose, onCreated }: Props) {
   const { t } = useTranslation();
   const [name, setName] = useState("");
   const [def, setDef] = useState("SELECT * FROM table_name");
@@ -36,7 +37,9 @@ export function NewViewDialog({ connId, quoteChar, database, schema, onClose, on
     setBusy(true);
     setErr(null);
     try {
-      await ipc.runSql(connId, "ddl", sql, 0, 1, null);
+      // SQL Server 需在目标库内建视图（USE [db]）；其它方言语句已限定，传 null。
+      const isMssql = kind === "sqlserver";
+      await ipc.runSql(connId, "ddl", sql, 0, 1, isMssql ? database : null, isMssql ? schema : null);
       onCreated();
     } catch (e) {
       setErr(errorMessage(e));

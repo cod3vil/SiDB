@@ -5,6 +5,16 @@ This project follows semantic versioning. Dates are release dates.
 
 ---
 
+## v1.2.10
+
+**中文**
+- 新增 SQL Server（T-SQL）支持：连接（SQL 身份验证 / SSH 隧道）、库 → schema → 表/视图/函数 浏览、数据浏览与编辑、建表 / 改表结构（列、索引、外键）、查看表与函数定义。采用纯 Rust 的 tiberius 驱动，跨库三段式限定，`OFFSET…FETCH` 分页。
+- 说明：本版 SQL Server 暂不支持查询取消与函数的可视化创建 / 编辑（可查看定义）。
+
+**English**
+- Added SQL Server (T-SQL) support: connect (SQL auth / SSH tunnel), browse database → schema → tables/views/functions, view & edit data, create/alter table structure (columns, indexes, foreign keys), view table & routine definitions. Built on the pure-Rust tiberius driver, with three-part cross-database names and `OFFSET…FETCH` pagination.
+- Note: query cancellation and visual create/edit of routines are not yet available for SQL Server in this release (definitions are viewable).
+
 ## v1.2.9
 
 **中文**
