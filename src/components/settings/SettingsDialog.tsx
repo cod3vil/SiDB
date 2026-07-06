@@ -52,6 +52,8 @@ export function SettingsDialog({ onClose }: Props) {
   const [baseUrl, setBaseUrl] = useState("");
   const [apiKey, setApiKey] = useState("");
   const [keyConfigured, setKeyConfigured] = useState(false);
+  const [maxIters, setMaxIters] = useState("20");
+  const [maxTokens, setMaxTokens] = useState("4096");
   const [testing, setTesting] = useState(false);
   const [saving, setSaving] = useState(false);
 
@@ -68,6 +70,8 @@ export function SettingsDialog({ onClose }: Props) {
         setModel(s.ai.model);
         setBaseUrl(s.ai.base_url ?? "");
         setKeyConfigured(s.ai.key_configured);
+        setMaxIters(String(s.ai.max_iters ?? 20));
+        setMaxTokens(String(s.ai.max_tokens ?? 4096));
       })
       .catch((e) => toast.error(errorMessage(e)));
   }, []);
@@ -111,6 +115,8 @@ export function SettingsDialog({ onClose }: Props) {
           model: model.trim(),
           base_url: needsBaseUrl ? baseUrl.trim() || null : null,
           key_configured: keyConfigured,
+          max_iters: Math.min(50, Math.max(1, parseInt(maxIters || "0", 10) || 20)),
+          max_tokens: Math.min(32768, Math.max(256, parseInt(maxTokens || "0", 10) || 4096)),
         },
       });
       toast.success(t("settings.saved"));
@@ -225,6 +231,26 @@ export function SettingsDialog({ onClose }: Props) {
               <Button variant="outline" onClick={test} disabled={testing || saving}>
                 {testing ? t("settings.testing") : t("settings.testConn")}
               </Button>
+              <div className="grid grid-cols-2 gap-3 border-t border-border pt-3">
+                <div className="space-y-1">
+                  <Label>{t("settings.maxIters")}</Label>
+                  <Input
+                    value={maxIters}
+                    onChange={(e) => setMaxIters(e.target.value.replace(/[^0-9]/g, ""))}
+                    placeholder="20"
+                  />
+                  <p className="text-[11px] text-muted-foreground/70">{t("settings.maxItersHint")}</p>
+                </div>
+                <div className="space-y-1">
+                  <Label>{t("settings.maxTokens")}</Label>
+                  <Input
+                    value={maxTokens}
+                    onChange={(e) => setMaxTokens(e.target.value.replace(/[^0-9]/g, ""))}
+                    placeholder="4096"
+                  />
+                  <p className="text-[11px] text-muted-foreground/70">{t("settings.maxTokensHint")}</p>
+                </div>
+              </div>
             </div>
           )}
 

@@ -306,6 +306,8 @@ export interface Settings {
     model: string;
     base_url: string | null;
     key_configured: boolean;
+    max_iters: number;
+    max_tokens: number;
   };
 }
 

@@ -12,6 +12,15 @@ pub enum Theme {
     System,
 }
 
+/// 默认最大工具往返轮数（Agent 防失控）。
+fn default_max_iters() -> u32 {
+    20
+}
+/// 默认每轮请求 max_tokens。
+fn default_max_tokens() -> u32 {
+    4096
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AiSettings {
     pub provider: String, // "anthropic" | "openai" | "custom"
@@ -21,6 +30,12 @@ pub struct AiSettings {
     /// API Key 存钥匙串，这里只标记是否已配置。
     #[serde(default)]
     pub key_configured: bool,
+    /// Agent 最大工具往返轮数（旧配置缺省时用默认值）。
+    #[serde(default = "default_max_iters")]
+    pub max_iters: u32,
+    /// 每轮模型请求的 max_tokens。
+    #[serde(default = "default_max_tokens")]
+    pub max_tokens: u32,
 }
 
 impl Default for AiSettings {
@@ -30,6 +45,8 @@ impl Default for AiSettings {
             model: "claude-sonnet-4-6".into(),
             base_url: None,
             key_configured: false,
+            max_iters: default_max_iters(),
+            max_tokens: default_max_tokens(),
         }
     }
 }

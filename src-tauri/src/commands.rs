@@ -944,6 +944,9 @@ pub async fn ai_chat(
     input: AiChatInput,
 ) -> R<crate::ai::agent::TurnResult> {
     let provider = build_provider(&state)?;
+    // Agent 循环参数来自 AI 设置（工具往返轮数 / 每轮 max_tokens）。
+    let ai_cfg = settings::load().ai;
+    let (max_iters, max_tokens) = (ai_cfg.max_iters, ai_cfg.max_tokens);
     let history: Vec<crate::ai::provider::Msg> = input
         .history
         .into_iter()
@@ -987,6 +990,8 @@ pub async fn ai_chat(
                 history,
                 input.message,
                 result_ctx,
+                max_iters,
+                max_tokens,
             )
             .await;
         }
@@ -1011,6 +1016,8 @@ pub async fn ai_chat(
             history,
             input.message,
             result_ctx,
+            max_iters,
+            max_tokens,
         )
         .await
     };

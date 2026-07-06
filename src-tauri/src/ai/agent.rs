@@ -7,10 +7,6 @@ use crate::ai::tools::{self, ToolCtx, ToolStep};
 use crate::models::AppError;
 use crate::services::connection::ConnectionManager;
 
-/// 最大工具往返轮数（防失控）。
-const MAX_ITERS: usize = 8;
-const MAX_TOKENS: u32 = 4096;
-
 /// 一条提案 DTO（回前端渲染确认卡片）。
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct ProposalDto {
@@ -37,6 +33,9 @@ pub async fn run_turn(
     history: Vec<Msg>,
     user_msg: String,
     result_ctx: Option<String>,
+    // max_iters：最大工具往返轮数（AI 设置，防失控）。max_tokens：每轮请求上限。
+    max_iters: u32,
+    max_tokens: u32,
 ) -> Result<TurnResult, AppError> {
     let mut brief = crate::ai::context::schema_brief(
         conns,
@@ -76,13 +75,13 @@ pub async fn run_turn(
     let mut steps: Vec<ToolStep> = Vec::new();
     let mut out_proposals: Vec<ProposalDto> = Vec::new();
 
-    for _ in 0..MAX_ITERS {
+    for _ in 0..max_iters {
         let resp = provider
             .chat(ChatRequest {
                 system: system.clone(),
                 messages: messages.clone(),
                 tools: tool_defs.clone(),
-                max_tokens: MAX_TOKENS,
+                max_tokens,
             })
             .await?;
 
@@ -141,6 +140,8 @@ pub async fn run_turn_redis(
     history: Vec<Msg>,
     user_msg: String,
     result_ctx: Option<String>,
+    max_iters: u32,
+    max_tokens: u32,
 ) -> Result<TurnResult, AppError> {
     let system = build_system_redis(db, selected_key.as_deref(), result_ctx.as_deref());
     let tool_defs = crate::ai::redis_tools::tool_defs_redis();
@@ -151,13 +152,13 @@ pub async fn run_turn_redis(
     let mut steps: Vec<ToolStep> = Vec::new();
     let mut out_proposals: Vec<ProposalDto> = Vec::new();
 
-    for _ in 0..MAX_ITERS {
+    for _ in 0..max_iters {
         let resp = provider
             .chat(ChatRequest {
                 system: system.clone(),
                 messages: messages.clone(),
                 tools: tool_defs.clone(),
-                max_tokens: MAX_TOKENS,
+                max_tokens,
             })
             .await?;
         messages.push(Msg {
@@ -317,6 +318,8 @@ mod tests {
             vec![],
             "给 t 表加一列 x".into(),
             None,
+            20,
+            4096,
         )
         .await
         .unwrap();
