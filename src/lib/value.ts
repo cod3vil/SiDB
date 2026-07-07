@@ -80,6 +80,13 @@ export function parseValue(input: string, valueKind: string): Value {
       return { t: "Bool", v: input === "true" || input === "1" };
     case "Decimal":
       return { t: "Decimal", v: input };
+    // 按列类型回传时间变体，让后端（尤其 PG）按正确类型绑定，而非 text。
+    case "Date":
+      return { t: "Date", v: input };
+    case "Time":
+      return { t: "Time", v: input };
+    case "DateTime":
+      return { t: "DateTime", v: input };
     default:
       return { t: "Text", v: input };
   }

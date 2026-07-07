@@ -185,6 +185,44 @@ fn decode_text_array(row: &PgRow, i: usize) -> Value {
     Value::Text(string_via(row, i))
 }
 
+/// 解析常见的无时区时间戳文本（编辑提交时前端传入的字符串）。
+fn parse_naive_datetime(s: &str) -> Option<chrono::NaiveDateTime> {
+    let s = s.trim();
+    const FMTS: [&str; 6] = [
+        "%Y-%m-%d %H:%M:%S%.f",
+        "%Y-%m-%dT%H:%M:%S%.f",
+        "%Y-%m-%d %H:%M:%S",
+        "%Y-%m-%dT%H:%M:%S",
+        "%Y-%m-%d %H:%M",
+        "%Y-%m-%dT%H:%M",
+    ];
+    FMTS.iter()
+        .find_map(|f| chrono::NaiveDateTime::parse_from_str(s, f).ok())
+}
+
+fn parse_naive_time(s: &str) -> Option<chrono::NaiveTime> {
+    let s = s.trim();
+    ["%H:%M:%S%.f", "%H:%M:%S", "%H:%M"]
+        .iter()
+        .find_map(|f| chrono::NaiveTime::parse_from_str(s, f).ok())
+}
+
+/// 解析带时区的时间戳文本（timestamptz 列，含 RFC3339 与空格分隔 `+08:00`/`+0800`）。
+fn parse_datetime_tz(s: &str) -> Option<chrono::DateTime<chrono::FixedOffset>> {
+    let s = s.trim();
+    if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(s) {
+        return Some(dt);
+    }
+    [
+        "%Y-%m-%d %H:%M:%S%.f%:z",
+        "%Y-%m-%d %H:%M:%S%:z",
+        "%Y-%m-%d %H:%M:%S%.f%z",
+        "%Y-%m-%d %H:%M:%S%z",
+    ]
+    .iter()
+    .find_map(|f| chrono::DateTime::parse_from_str(s, f).ok())
+}
+
 fn bind_params<'q>(
     mut q: sqlx::query::Query<'q, sqlx::Postgres, sqlx::postgres::PgArguments>,
     params: &'q [Value],
@@ -197,7 +235,26 @@ fn bind_params<'q>(
             Value::UInt(n) => q.bind(*n as i64),
             Value::Float(f) => q.bind(*f),
             Value::Decimal(s) | Value::Text(s) | Value::Unknown(s) => q.bind(s.clone()),
-            Value::Date(s) | Value::Time(s) | Value::DateTime(s) => q.bind(s.clone()),
+            // PG 不会把 text 型参数隐式赋给 date/time/timestamp 列，须按对应的
+            // chrono 类型绑定（发正确的类型 OID）；解析失败再退回文本。
+            Value::Date(s) => match chrono::NaiveDate::parse_from_str(s.trim(), "%Y-%m-%d") {
+                Ok(d) => q.bind(d),
+                Err(_) => q.bind(s.clone()),
+            },
+            Value::Time(s) => match parse_naive_time(s) {
+                Some(t) => q.bind(t),
+                None => q.bind(s.clone()),
+            },
+            Value::DateTime(s) => {
+                if let Some(dt) = parse_naive_datetime(s) {
+                    q.bind(dt)
+                } else if let Some(dt) = parse_datetime_tz(s) {
+                    // 带时区（timestamptz）：统一按 UTC 绑定。
+                    q.bind(dt.with_timezone(&chrono::Utc))
+                } else {
+                    q.bind(s.clone())
+                }
+            }
             Value::Json(j) => q.bind(j.clone()),
             Value::Bytes { preview_hex, .. } => q.bind(preview_hex.clone()),
             Value::Array(_) => q.bind(serde_json::to_string(p).unwrap_or_default()),
@@ -689,5 +746,42 @@ impl DbAdapter for PostgresAdapter {
             }
         }
         Ok(None)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{parse_datetime_tz, parse_naive_datetime, parse_naive_time};
+
+    #[test]
+    fn datetime_parsing_common_formats() {
+        // 用户报的场景：空格分隔、无小数秒。
+        assert!(parse_naive_datetime("2026-06-18 14:08:04").is_some());
+        // 小数秒 + T 分隔 + 仅到分钟。
+        assert!(parse_naive_datetime("2026-06-18 14:08:04.123").is_some());
+        assert!(parse_naive_datetime("2026-06-18T14:08:04").is_some());
+        assert!(parse_naive_datetime("2026-06-18 14:08").is_some());
+        // 前后空白容忍。
+        assert!(parse_naive_datetime("  2026-06-18 14:08:04  ").is_some());
+        // 非法值退回 None（调用方会退回按文本绑定）。
+        assert!(parse_naive_datetime("not-a-date").is_none());
+    }
+
+    #[test]
+    fn time_parsing() {
+        assert!(parse_naive_time("14:08:04").is_some());
+        assert!(parse_naive_time("14:08").is_some());
+        assert!(parse_naive_time("14:08:04.5").is_some());
+        assert!(parse_naive_time("nope").is_none());
+    }
+
+    #[test]
+    fn tz_parsing_rfc3339_and_space_offset() {
+        // 无时区的字符串不应被 tz 解析器吃掉（留给 naive 解析器）。
+        assert!(parse_datetime_tz("2026-06-18 14:08:04").is_none());
+        // RFC3339（T 分隔）与展示用的空格分隔 +08:00 / +0800。
+        assert!(parse_datetime_tz("2026-06-18T14:08:04+08:00").is_some());
+        assert!(parse_datetime_tz("2026-06-18 14:08:04+08:00").is_some());
+        assert!(parse_datetime_tz("2026-06-18 14:08:04.123+0800").is_some());
     }
 }

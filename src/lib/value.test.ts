@@ -34,4 +34,12 @@ describe("parseValue", () => {
   it("falls back to text", () => {
     expect(parseValue("hi", "Text")).toEqual({ t: "Text", v: "hi" });
   });
+  it("emits temporal variants so PG binds the right type (not text)", () => {
+    expect(parseValue("2026-06-18 14:08:04", "DateTime")).toEqual({
+      t: "DateTime",
+      v: "2026-06-18 14:08:04",
+    });
+    expect(parseValue("2026-06-18", "Date")).toEqual({ t: "Date", v: "2026-06-18" });
+    expect(parseValue("14:08:04", "Time")).toEqual({ t: "Time", v: "14:08:04" });
+  });
 });
