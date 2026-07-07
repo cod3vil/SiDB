@@ -13,6 +13,17 @@ pub mod type_map;
 use crate::models::*;
 use async_trait::async_trait;
 use serde::Serialize;
+use std::sync::Arc;
+
+/// 取消句柄：**不经会话适配器锁**即可中止在跑的查询。
+///
+/// 背景：`run_sql` 执行期间持有 `Session.adapter` 的 tokio 互斥锁，若 `cancel` 也去抢这把锁
+/// 会一直阻塞到查询自己结束（取消形同虚设）。故支持真·取消的方言（如 SQL Server 用独立连接
+/// `KILL`）另外暴露此句柄，存入 `Session`，取消时直接调用、绕开适配器锁。
+#[async_trait]
+pub trait QueryCanceller: Send + Sync {
+    async fn cancel(&self, query_id: &str) -> Result<()>;
+}
 
 #[derive(Debug, Clone, Serialize)]
 pub struct DbCapabilities {
@@ -88,6 +99,12 @@ pub trait DbAdapter: Send + Sync {
     async fn query(&self, query_id: &str, sql: &str, params: &[Value]) -> Result<RawResultSet>;
     async fn execute(&self, query_id: &str, sql: &str, params: &[Value]) -> Result<ExecResult>;
     async fn cancel(&self, query_id: &str) -> Result<()>;
+
+    /// 绕开会话锁的取消句柄（见 [`QueryCanceller`]）。默认 None，取消走 [`Self::cancel`]
+    /// （受会话锁串行，无法中止在跑查询）。SQL Server 等返回独立句柄以实现真取消。
+    fn canceller(&self) -> Option<Arc<dyn QueryCanceller>> {
+        None
+    }
 
     /// 切换后续语句所在的数据库（仅 `supports_use_database` 的方言，如 MySQL）。
     /// 默认无操作（PG/SQLite）。`None`/空串表示沿用连接默认库。

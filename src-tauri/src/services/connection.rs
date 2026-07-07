@@ -6,7 +6,7 @@
 
 use super::credential::{keys, CredentialService};
 use super::settings::data_dir;
-use crate::adapters::{create_adapter, DbAdapter, DbCapabilities};
+use crate::adapters::{create_adapter, DbAdapter, DbCapabilities, QueryCanceller};
 use crate::models::*;
 use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
@@ -239,6 +239,8 @@ pub struct Session {
     pub tunnel: Option<String>,
     pub read_timeout: Option<Duration>,
     pub write_timeout: Option<Duration>,
+    /// 绕开适配器锁的取消句柄（支持真取消的方言才有，如 SQL Server）。
+    pub canceller: Option<Arc<dyn QueryCanceller>>,
 }
 
 /// 活动会话（Redis / KV）。与 SQL 会话并行存放，命令层据连接 kind 路由。
@@ -306,6 +308,8 @@ impl ConnectionManager {
         adapter.connect(&target).await?;
         adapter.ping().await?;
         let caps = adapter.capabilities().clone();
+        // 取消句柄须在 adapter 被移入互斥锁前取出（此时已 connect，句柄含 spid/连接信息）。
+        let canceller = adapter.canceller();
         let session = Arc::new(Session {
             conn_id: cfg.id.clone(),
             adapter: tokio::sync::Mutex::new(adapter),
@@ -313,6 +317,7 @@ impl ConnectionManager {
             tunnel,
             read_timeout: timeouts.read,
             write_timeout: timeouts.write,
+            canceller,
         });
 
         // 保活：后台周期 ping。持 Weak，会话被移除（断开）后 upgrade 失败即自动退出。

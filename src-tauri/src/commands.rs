@@ -168,7 +168,9 @@ pub fn import_config(state: State<'_, AppState>, path: String) -> R<usize> {
     let mut imported = 0usize;
     if let Some(arr) = doc.get("connections").and_then(|v| v.as_array()) {
         for entry in arr {
-            let Some(cfg_val) = entry.get("config") else { continue };
+            let Some(cfg_val) = entry.get("config") else {
+                continue;
+            };
             let cfg: ConnConfig = match serde_json::from_value(cfg_val.clone()) {
                 Ok(c) => c,
                 Err(_) => continue,
@@ -178,9 +180,18 @@ pub fn import_config(state: State<'_, AppState>, path: String) -> R<usize> {
                     let _ = state.cred.set(&k, v);
                 }
             };
-            set_cred(keys::conn_password(&cfg.id), entry.get("password").and_then(|v| v.as_str()));
-            set_cred(keys::conn_ssh_password(&cfg.id), entry.get("ssh_password").and_then(|v| v.as_str()));
-            set_cred(keys::conn_ssh_passphrase(&cfg.id), entry.get("ssh_passphrase").and_then(|v| v.as_str()));
+            set_cred(
+                keys::conn_password(&cfg.id),
+                entry.get("password").and_then(|v| v.as_str()),
+            );
+            set_cred(
+                keys::conn_ssh_password(&cfg.id),
+                entry.get("ssh_password").and_then(|v| v.as_str()),
+            );
+            set_cred(
+                keys::conn_ssh_passphrase(&cfg.id),
+                entry.get("ssh_passphrase").and_then(|v| v.as_str()),
+            );
             match configs.iter_mut().find(|c| c.id == cfg.id) {
                 Some(existing) => *existing = cfg,
                 None => configs.push(cfg),
@@ -238,8 +249,14 @@ pub async fn test_connection(state: State<'_, AppState>, input: ConnConfigInput)
             .as_deref()
             .and_then(|id| state.cred.get(&key_of(id)).ok().flatten())
     };
-    let password = input.password.clone().or_else(|| stored(keys::conn_password));
-    let ssh_password = input.ssh_password.clone().or_else(|| stored(keys::conn_ssh_password));
+    let password = input
+        .password
+        .clone()
+        .or_else(|| stored(keys::conn_password));
+    let ssh_password = input
+        .ssh_password
+        .clone()
+        .or_else(|| stored(keys::conn_ssh_password));
     let ssh_passphrase = input
         .ssh_passphrase
         .clone()
@@ -495,7 +512,8 @@ pub async fn redis_export(
         a.dump(db, &pattern, 100_000).await?
     };
     let n = json.as_array().map(|a| a.len()).unwrap_or(0);
-    let body = serde_json::to_string_pretty(&json).map_err(|e| AppError::Internal(e.to_string()))?;
+    let body =
+        serde_json::to_string_pretty(&json).map_err(|e| AppError::Internal(e.to_string()))?;
     std::fs::write(&path, body).map_err(|e| AppError::Internal(e.to_string()))?;
     Ok(n)
 }
@@ -753,6 +771,11 @@ pub async fn run_sql(
 #[tauri::command]
 pub async fn cancel_query(state: State<'_, AppState>, conn_id: String, query_id: String) -> R<()> {
     let s = session(&state, &conn_id)?;
+    // 有独立取消句柄的方言（SQL Server）走它，绕开被 run_sql 长期持有的适配器锁；
+    // 其余方言退回适配器 cancel（受锁串行）。
+    if let Some(c) = s.canceller.clone() {
+        return c.cancel(&query_id).await;
+    }
     let a = s.adapter.lock().await;
     a.cancel(&query_id).await
 }
@@ -966,7 +989,9 @@ pub async fn ai_chat(
 
     // 取消令牌：按 conn_id 登记；`ai_cancel` 触发后中止本次 agent。新请求覆盖旧令牌。
     let token = tokio_util::sync::CancellationToken::new();
-    state.ai_cancels.insert(input.conn_id.clone(), token.clone());
+    state
+        .ai_cancels
+        .insert(input.conn_id.clone(), token.clone());
     let _guard = AiCancelGuard {
         map: state.ai_cancels.clone(),
         conn_id: input.conn_id.clone(),
@@ -1076,7 +1101,11 @@ pub async fn ai_confirm_write(
             affected_rows: 0,
             last_insert_id: None,
             elapsed_ms: 0,
-            statement: format!("{} → {}", p.sql, crate::ai::redis_tools::reply_to_text(&reply)),
+            statement: format!(
+                "{} → {}",
+                p.sql,
+                crate::ai::redis_tools::reply_to_text(&reply)
+            ),
         }]);
     }
     let s = session(&state, &input.conn_id)?;

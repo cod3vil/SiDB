@@ -6,25 +6,44 @@
 //! - 标识符引号：`QUOTED_IDENTIFIER ON`（tiberius 默认），用 `"` 包裹；跨库用三段式 `db.schema.table`。
 //! - 分页：`OFFSET…FETCH`（见 `services::query`）。占位符：`@P1..@Pn`。
 //! - 元数据：`INFORMATION_SCHEMA.*` 与 `sys.*`，均以库名三段式限定，避免依赖当前库状态。
-//! - 一期不支持查询取消（`supports_cancel = false`）与函数创建/编辑（只读查看定义）。
+//! - 查询取消：另开连接执行 `KILL <@@SPID>`（会话级取消，杀掉当前连接使在跑查询中止），
+//!   随后惰性重连（[`Shared::dead`] 标记）。取消句柄绕开会话锁，见 [`super::QueryCanceller`]。
+//! - 函数 / 存储过程：可查看定义、创建、编辑（`DROP IF EXISTS` + `CREATE`）。
 
 use super::type_map::sqlserver_kind;
-use super::{DbAdapter, DbCapabilities};
+use super::{DbAdapter, DbCapabilities, QueryCanceller};
 use crate::models::*;
 use async_trait::async_trait;
+use dashmap::DashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 use tiberius::{AuthMethod, Client, Config, EncryptionLevel, Row};
 use tokio::net::TcpStream;
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, MutexGuard};
 use tokio_util::compat::{Compat, TokioAsyncWriteCompatExt};
 
 type Conn = Client<Compat<TcpStream>>;
 
+/// 在适配器与取消句柄之间共享的状态（Arc 共享）。
+#[derive(Default)]
+struct Shared {
+    /// 连接目标（重连、以及另开连接执行 KILL 时用）。仅在内存，不落盘。
+    target: std::sync::Mutex<Option<ConnTarget>>,
+    /// 当前连接的 `@@SPID`（KILL 目标）。
+    spid: std::sync::Mutex<Option<i32>>,
+    /// 在跑的 query_id 集合（取消时据此判断是否真有查询在跑，避免误杀空闲连接）。
+    active: DashMap<String, ()>,
+    /// 已被 KILL、连接失效：下次操作前需重连。
+    dead: AtomicBool,
+}
+
 pub struct SqlServerAdapter {
     caps: DbCapabilities,
     client: Mutex<Option<Conn>>,
-    /// 当前库（`USE` 切换后记录，避免重复切换）。
+    /// 当前库（`USE` 切换后记录，避免重复切换；重连后据此恢复）。
     current_db: std::sync::Mutex<Option<String>>,
+    shared: Arc<Shared>,
 }
 
 impl SqlServerAdapter {
@@ -32,7 +51,7 @@ impl SqlServerAdapter {
         Self {
             caps: DbCapabilities {
                 supports_ssh: true,
-                supports_cancel: false,
+                supports_cancel: true,
                 supports_schemas: true,
                 supports_multi_database: true,
                 supports_use_database: true,
@@ -42,25 +61,85 @@ impl SqlServerAdapter {
             },
             client: Mutex::new(None),
             current_db: std::sync::Mutex::new(None),
+            shared: Arc::new(Shared::default()),
         }
     }
 
-    /// 取出内部连接引用；未连接则报错。
-    async fn with_client(guard: &mut Option<Conn>) -> Result<&mut Conn> {
-        guard
-            .as_mut()
-            .ok_or_else(|| AppError::Internal("sqlserver not connected".into()))
+    /// 锁定内部连接并保证其可用：若已被 KILL（`dead`）或无连接，则重连并恢复当前库。
+    async fn lock_live(&self) -> Result<MutexGuard<'_, Option<Conn>>> {
+        let mut guard = self.client.lock().await;
+        let need = self.shared.dead.swap(false, Ordering::SeqCst) || guard.is_none();
+        if need {
+            let target = self
+                .shared
+                .target
+                .lock()
+                .unwrap()
+                .clone()
+                .ok_or_else(|| AppError::Internal("sqlserver not connected".into()))?;
+            let mut client = build_client(&target).await?;
+            let spid = fetch_spid(&mut client).await?;
+            *self.shared.spid.lock().unwrap() = Some(spid);
+            // 恢复当前库（重连默认回到连接初始库）。
+            let cur = self.current_db.lock().unwrap().clone();
+            if let Some(db) = cur {
+                let stmt = format!("USE {}", self.caps.quote_ident(&db)?);
+                exec_simple(&mut client, &stmt).await?;
+            }
+            *guard = Some(client);
+        }
+        Ok(guard)
     }
 
     /// 跑一条带参数的查询，取第一个结果集的行（行自持数据，可在锁外解码）。
     async fn fetch_rows(&self, sql: &str, params: &[P]) -> Result<Vec<Row>> {
-        let mut guard = self.client.lock().await;
-        let client = Self::with_client(&mut guard).await?;
+        let mut guard = self.lock_live().await?;
+        let client = guard
+            .as_mut()
+            .expect("lock_live guarantees a live connection");
         let refs: Vec<&dyn tiberius::ToSql> =
             params.iter().map(|p| p as &dyn tiberius::ToSql).collect();
         let stream = client.query(sql, &refs).await.map_err(tds_err)?;
         stream.into_first_result().await.map_err(tds_err)
     }
+}
+
+/// 绕开会话锁的取消句柄：另开连接 `KILL <spid>`，并标记连接失效（下次操作重连）。
+struct MssqlCanceller {
+    shared: Arc<Shared>,
+}
+
+#[async_trait]
+impl QueryCanceller for MssqlCanceller {
+    async fn cancel(&self, query_id: &str) -> Result<()> {
+        // 该 query 已结束 / 不存在 → 不动作，避免误杀空闲连接。
+        if !self.shared.active.contains_key(query_id) {
+            return Ok(());
+        }
+        let Some(spid) = *self.shared.spid.lock().unwrap() else {
+            return Ok(());
+        };
+        let Some(target) = self.shared.target.lock().unwrap().clone() else {
+            return Ok(());
+        };
+        // 独立连接执行 KILL；成功后标记失效，让在跑连接的下一次使用触发重连。
+        let mut conn = build_client(&target).await?;
+        exec_simple(&mut conn, &format!("KILL {spid}")).await?;
+        self.shared.dead.store(true, Ordering::SeqCst);
+        Ok(())
+    }
+}
+
+/// 取当前连接的 `@@SPID`（CAST 成 int 便于按 i32 解码）。
+async fn fetch_spid(client: &mut Conn) -> Result<i32> {
+    let stream = client
+        .query("SELECT CAST(@@SPID AS int)", &[])
+        .await
+        .map_err(tds_err)?;
+    let rows = stream.into_first_result().await.map_err(tds_err)?;
+    rows.first()
+        .and_then(|r| r.try_get::<i32, _>(0).ok().flatten())
+        .ok_or_else(|| AppError::Internal("failed to read @@SPID".into()))
 }
 
 impl Default for SqlServerAdapter {
@@ -403,31 +482,51 @@ impl DbAdapter for SqlServerAdapter {
         }
     }
 
+    fn canceller(&self) -> Option<Arc<dyn QueryCanceller>> {
+        Some(Arc::new(MssqlCanceller {
+            shared: self.shared.clone(),
+        }))
+    }
+
     async fn connect(&mut self, target: &ConnTarget) -> Result<()> {
-        let client = build_client(target).await?;
-        *self.client.lock().await = Some(client);
+        let mut client = build_client(target).await?;
+        let spid = fetch_spid(&mut client).await?;
+        *self.shared.target.lock().unwrap() = Some(target.clone());
+        *self.shared.spid.lock().unwrap() = Some(spid);
+        self.shared.dead.store(false, Ordering::SeqCst);
+        self.shared.active.clear();
         *self.current_db.lock().unwrap() = target
             .database
             .as_deref()
             .map(str::trim)
             .filter(|s| !s.is_empty())
             .map(|s| s.to_string());
+        *self.client.lock().await = Some(client);
         Ok(())
     }
 
     async fn disconnect(&mut self) {
         *self.client.lock().await = None;
         *self.current_db.lock().unwrap() = None;
+        *self.shared.target.lock().unwrap() = None;
+        *self.shared.spid.lock().unwrap() = None;
+        self.shared.active.clear();
     }
 
     async fn ping(&self) -> Result<()> {
-        let mut guard = self.client.lock().await;
-        let client = Self::with_client(&mut guard).await?;
+        let mut guard = self.lock_live().await?;
+        let client = guard
+            .as_mut()
+            .expect("lock_live guarantees a live connection");
         exec_simple(client, "SELECT 1").await
     }
 
-    async fn query(&self, _query_id: &str, sql: &str, params: &[Value]) -> Result<RawResultSet> {
-        let rows = self.fetch_rows(sql, &params_of(params)).await?;
+    async fn query(&self, query_id: &str, sql: &str, params: &[Value]) -> Result<RawResultSet> {
+        // 登记为在跑，供取消句柄判断（无论成功/失败都要摘除）。
+        self.shared.active.insert(query_id.to_string(), ());
+        let fetched = self.fetch_rows(sql, &params_of(params)).await;
+        self.shared.active.remove(query_id);
+        let rows = fetched?;
         let columns = match rows.first() {
             Some(first) => first
                 .columns()
@@ -452,17 +551,25 @@ impl DbAdapter for SqlServerAdapter {
         })
     }
 
-    async fn execute(&self, _query_id: &str, sql: &str, params: &[Value]) -> Result<ExecResult> {
-        let owned = params_of(params);
-        let mut guard = self.client.lock().await;
-        let client = Self::with_client(&mut guard).await?;
-        let refs: Vec<&dyn tiberius::ToSql> =
-            owned.iter().map(|p| p as &dyn tiberius::ToSql).collect();
-        let res = client.execute(sql, &refs).await.map_err(tds_err)?;
-        Ok(ExecResult {
-            affected_rows: res.rows_affected().iter().sum(),
-            last_insert_id: None,
-        })
+    async fn execute(&self, query_id: &str, sql: &str, params: &[Value]) -> Result<ExecResult> {
+        self.shared.active.insert(query_id.to_string(), ());
+        let out = async {
+            let owned = params_of(params);
+            let mut guard = self.lock_live().await?;
+            let client = guard
+                .as_mut()
+                .expect("lock_live guarantees a live connection");
+            let refs: Vec<&dyn tiberius::ToSql> =
+                owned.iter().map(|p| p as &dyn tiberius::ToSql).collect();
+            let res = client.execute(sql, &refs).await.map_err(tds_err)?;
+            Ok(ExecResult {
+                affected_rows: res.rows_affected().iter().sum(),
+                last_insert_id: None,
+            })
+        }
+        .await;
+        self.shared.active.remove(query_id);
+        out
     }
 
     async fn use_database(&mut self, db: Option<String>) -> Result<()> {
@@ -470,27 +577,36 @@ impl DbAdapter for SqlServerAdapter {
         if *self.current_db.lock().unwrap() == db {
             return Ok(());
         }
+        // 先更新 current_db，让重连也能命中该库。
+        *self.current_db.lock().unwrap() = db.clone();
         if let Some(d) = &db {
             let stmt = format!("USE {}", self.caps.quote_ident(d)?);
-            let mut guard = self.client.lock().await;
-            let client = Self::with_client(&mut guard).await?;
+            let mut guard = self.lock_live().await?;
+            let client = guard
+                .as_mut()
+                .expect("lock_live guarantees a live connection");
             exec_simple(client, &stmt).await?;
         }
-        *self.current_db.lock().unwrap() = db;
         Ok(())
     }
 
-    async fn cancel(&self, _query_id: &str) -> Result<()> {
-        // 一期不支持查询取消。
-        Ok(())
+    async fn cancel(&self, query_id: &str) -> Result<()> {
+        // 常规路径经取消句柄（绕开会话锁）；此处兜底同样有效。
+        MssqlCanceller {
+            shared: self.shared.clone(),
+        }
+        .cancel(query_id)
+        .await
     }
 
     async fn execute_in_transaction(
         &self,
         stmts: Vec<(String, Vec<Value>)>,
     ) -> Result<Vec<ExecResult>> {
-        let mut guard = self.client.lock().await;
-        let client = Self::with_client(&mut guard).await?;
+        let mut guard = self.lock_live().await?;
+        let client = guard
+            .as_mut()
+            .expect("lock_live guarantees a live connection");
         exec_simple(client, "BEGIN TRANSACTION").await?;
         let mut results = Vec::with_capacity(stmts.len());
         for (sql, params) in &stmts {
@@ -628,6 +744,37 @@ impl DbAdapter for SqlServerAdapter {
             .filter(|s| !s.is_empty())
             .ok_or_else(|| AppError::NotEditable(format!("routine not found: {}", r.name)))?;
         Ok(def)
+    }
+
+    async fn create_function(&self, definition: &str) -> Result<()> {
+        // `CREATE PROCEDURE/FUNCTION` 必须是批次首语句：整段作为独立批次执行。
+        // 目标库由命令层先 `use_database` 设定（当前连接的 USE 生效）。
+        let mut guard = self.lock_live().await?;
+        let client = guard
+            .as_mut()
+            .expect("lock_live guarantees a live connection");
+        exec_simple(client, definition).await
+    }
+
+    async fn replace_function(&self, r: &RoutineRef, definition: &str) -> Result<()> {
+        // T-SQL 无 `CREATE OR REPLACE`：先 `DROP ... IF EXISTS`（当前库内两段式），再整段 CREATE。
+        let kw = match r.kind {
+            RoutineKind::Procedure => "PROCEDURE",
+            RoutineKind::Function => "FUNCTION",
+        };
+        let schema = r.schema.as_deref().unwrap_or("dbo");
+        let ident = format!(
+            "{}.{}",
+            self.caps.quote_ident(schema)?,
+            self.caps.quote_ident(&r.name)?
+        );
+        let drop_sql = format!("DROP {kw} IF EXISTS {ident}");
+        let mut guard = self.lock_live().await?;
+        let client = guard
+            .as_mut()
+            .expect("lock_live guarantees a live connection");
+        exec_simple(client, &drop_sql).await?;
+        exec_simple(client, definition).await
     }
 
     async fn table_schema(&self, t: &TableRef) -> Result<TableSchema> {
@@ -889,5 +1036,32 @@ mod tests {
     #[test]
     fn hex_roundtrip() {
         assert_eq!(hex_to_bytes("00ff10"), vec![0x00, 0xff, 0x10]);
+    }
+
+    #[tokio::test]
+    async fn cancel_noop_when_query_not_active() {
+        // 未登记该 query（不在跑）→ 直接返回，不尝试建连/KILL。
+        let c = MssqlCanceller {
+            shared: Arc::new(Shared::default()),
+        };
+        assert!(c.cancel("tab-1:0").await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn cancel_noop_when_active_but_no_spid_or_target() {
+        // 有在跑标记但缺 spid/target（未真正连上）→ 仍安全返回，不 panic。
+        let shared = Arc::new(Shared::default());
+        shared.active.insert("tab-1:0".into(), ());
+        let c = MssqlCanceller {
+            shared: shared.clone(),
+        };
+        assert!(c.cancel("tab-1:0").await.is_ok());
+    }
+
+    #[test]
+    fn adapter_advertises_cancel_and_handle() {
+        let a = SqlServerAdapter::new();
+        assert!(a.capabilities().supports_cancel);
+        assert!(a.canceller().is_some());
     }
 }

@@ -139,6 +139,8 @@ function scaffoldSql(type: NewObjectType, kind?: string): string {
     case "function":
       if (kind === "postgres")
         return "CREATE FUNCTION new_function() RETURNS integer AS $$\nBEGIN\n  RETURN 0;\nEND;\n$$ LANGUAGE plpgsql;";
+      if (kind === "sqlserver")
+        return "CREATE FUNCTION dbo.new_function()\nRETURNS int\nAS\nBEGIN\n  RETURN 0;\nEND;";
       if (kind === "sqlite") return "-- SQLite 不支持存储函数 / 存储过程";
       return "CREATE FUNCTION new_function() RETURNS INT\nBEGIN\n  RETURN 0;\nEND;";
     default:
