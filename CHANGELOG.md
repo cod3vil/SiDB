@@ -5,6 +5,18 @@ This project follows semantic versioning. Dates are release dates.
 
 ---
 
+## v1.2.12
+
+**中文**
+- SQL Server：补齐查询取消（运行中可「停止」，另开连接 `KILL` 当前会话后自动重连）。
+- SQL Server：支持函数 / 存储过程的可视化新建与编辑（此前仅可查看定义）。
+- 修复 PostgreSQL：在结果集里编辑 `timestamp` / `date` / `time` 列并提交时报「is of type … but expression is of type text」——现按列类型正确绑定参数（含带时区的 timestamptz），无法解析时回退文本。
+
+**English**
+- SQL Server: added query cancellation (a running query can be stopped — a side connection issues `KILL`, then the adapter reconnects automatically).
+- SQL Server: create/edit functions & stored procedures from the visual editor (previously view-only).
+- Fixed PostgreSQL: editing a `timestamp` / `date` / `time` cell in the result grid failed with "is of type … but expression is of type text" — values are now bound as their proper types (including timestamptz), falling back to text when unparseable.
+
 ## v1.2.11
 
 **中文**
