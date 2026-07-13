@@ -65,18 +65,16 @@ export function ResultGrid({ result, onGoto, table, onCommit, onExport, onAskAi,
     setEditing({ row, col });
     setEditStr(editText(v));
   };
-  const commitEdit = (kind: string) => {
-    if (!editing) return;
-    const { row, col } = editing;
-    const val = parseValue(editStr, kind);
+  // 记录一格的新值（既有行记入 edits，新行记入 newRows）；与原值相同则撤销该格改动。
+  const recordEdit = (row: number, col: string, val: Value) => {
     if (row >= existingCount) {
       const j = row - existingCount;
       setNewRows((rs) => rs.map((r, i) => (i === j ? { ...r, [col]: val } : r)));
     } else {
-      // 与原值比较：未改动则不记（并撤销该格可能存在的旧编辑），避免空提交。
+      // 与原值比较（用 editText 归一化，覆盖 bool/null 等）：未改动则不记，避免空提交。
       const ci = result.columns.findIndex((c) => c.name === col);
       const original = ci >= 0 ? result.rows[row]?.[ci] : undefined;
-      const unchanged = original !== undefined && editText(original) === editStr;
+      const unchanged = original !== undefined && editText(original) === editText(val);
       const key = `${row}:${col}`;
       setEdits((prev) => {
         if (unchanged) {
@@ -88,6 +86,19 @@ export function ResultGrid({ result, onGoto, table, onCommit, onExport, onAskAi,
         return { ...prev, [key]: val };
       });
     }
+  };
+
+  const commitEdit = (kind: string) => {
+    if (!editing) return;
+    const { row, col } = editing;
+    recordEdit(row, col, parseValue(editStr, kind));
+    setEditing(null);
+  };
+
+  // bool 列走下拉：直接选 true/false/(NULL)，无需填文本。空串表示 NULL。
+  const commitBool = (row: number, col: string, raw: string) => {
+    const val: Value = raw === "" ? { t: "Null" } : { t: "Bool", v: raw === "true" };
+    recordEdit(row, col, val);
     setEditing(null);
   };
 
@@ -317,7 +328,30 @@ export function ResultGrid({ result, onGoto, table, onCommit, onExport, onAskAi,
                       title={r.text}
                       onDoubleClick={() => !isDeleted && startEdit(vi, col.name, cur)}
                     >
-                      {isEditing ? (
+                      {isEditing && col.value_kind === "Bool" ? (
+                        <select
+                          ref={(el) => {
+                            // 双击后自动展开下拉（webview 支持 showPicker 时）；无用户手势会抛错，忽略即可。
+                            try {
+                              el?.showPicker?.();
+                            } catch {
+                              /* 回退：用户点一下展开 */
+                            }
+                          }}
+                          autoFocus
+                          value={cur.t === "Bool" ? String(cur.v) : ""}
+                          onChange={(e) => commitBool(vi, col.name, e.target.value)}
+                          onBlur={() => setEditing(null)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Escape") setEditing(null);
+                          }}
+                          className="w-full bg-background px-0.5 text-foreground outline-none ring-1 ring-primary"
+                        >
+                          <option value="true">true</option>
+                          <option value="false">false</option>
+                          {col.nullable && <option value="">NULL</option>}
+                        </select>
+                      ) : isEditing ? (
                         <input
                           autoFocus
                           autoCapitalize="off"

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { renderValue, parseValue } from "./value";
+import { renderValue, parseValue, editText } from "./value";
 
 describe("renderValue", () => {
   it("marks NULL distinctly", () => {
@@ -41,5 +41,21 @@ describe("parseValue", () => {
     });
     expect(parseValue("2026-06-18", "Date")).toEqual({ t: "Date", v: "2026-06-18" });
     expect(parseValue("14:08:04", "Time")).toEqual({ t: "Time", v: "14:08:04" });
+  });
+  it("parses bool case-insensitively (True/T/yes → true)", () => {
+    for (const s of ["true", "True", "TRUE", "1", "t", "yes", "y", "on", " true "]) {
+      expect(parseValue(s, "Bool")).toEqual({ t: "Bool", v: true });
+    }
+    for (const s of ["false", "False", "0", "f", "no", ""]) {
+      expect(parseValue(s, "Bool")).toEqual({ t: "Bool", v: false });
+    }
+  });
+});
+
+describe("editText", () => {
+  it("bool edits round-trip through parseValue (shows true/false, not 1/0)", () => {
+    expect(editText({ t: "Bool", v: true })).toBe("true");
+    expect(editText({ t: "Bool", v: false })).toBe("false");
+    expect(parseValue(editText({ t: "Bool", v: true }), "Bool")).toEqual({ t: "Bool", v: true });
   });
 });

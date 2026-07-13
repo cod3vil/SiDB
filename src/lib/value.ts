@@ -46,7 +46,8 @@ export function editText(v: Value): string {
     case "Bytes":
       return "";
     case "Bool":
-      return v.v ? "1" : "0";
+      // 与显示（renderValue）一致，避免编辑框里出现让人误会的 "1"/"0"。
+      return v.v ? "true" : "false";
     case "Int":
     case "UInt":
     case "Float":
@@ -76,8 +77,11 @@ export function parseValue(input: string, valueKind: string): Value {
       return { t: "UInt", v: intValue(input) };
     case "Float":
       return { t: "Float", v: Number.parseFloat(input) };
-    case "Bool":
-      return { t: "Bool", v: input === "true" || input === "1" };
+    case "Bool": {
+      // 宽松解析：大小写不敏感，接受 true/1/t/yes/y/on（其余按 false）。
+      const s = input.trim().toLowerCase();
+      return { t: "Bool", v: ["true", "1", "t", "yes", "y", "on"].includes(s) };
+    }
     case "Decimal":
       return { t: "Decimal", v: input };
     // 按列类型回传时间变体，让后端（尤其 PG）按正确类型绑定，而非 text。
