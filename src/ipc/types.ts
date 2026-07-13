@@ -309,6 +309,27 @@ export interface Settings {
     max_iters: number;
     max_tokens: number;
   };
+  mcp: {
+    enabled: boolean;
+    port: number;
+  };
+}
+
+/** MCP 本地服务状态（对齐后端 commands::McpStatus）。 */
+export interface McpStatus {
+  running: boolean;
+  port: number;
+  configured_port: number;
+  enabled: boolean;
+  token: string;
+}
+
+/** `mcp-proposal` 事件负载：外部工具经 MCP 发起的写提案，待用户确认。 */
+export interface McpProposal {
+  id: string;
+  conn_id: string;
+  conn_name: string;
+  sql: string;
 }
 
 // AI 对话（与 Rust commands::ai_chat / agent::TurnResult 对齐）。

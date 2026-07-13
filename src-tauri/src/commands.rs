@@ -24,27 +24,43 @@ use std::sync::Arc;
 use tauri::{AppHandle, Emitter, State};
 
 /// 全局应用状态。
+///
+/// `conns` / `cred` / `tunnels` / `proposals` 用 `Arc` 持有，便于与后台的 MCP 服务共享同一实例
+/// （命令处的 `state.xxx.method()` 经自动解引用不受影响）。
 pub struct AppState {
-    pub conns: ConnectionManager,
-    pub cred: CredentialService,
-    pub tunnels: TunnelManager,
+    pub conns: Arc<ConnectionManager>,
+    pub cred: Arc<CredentialService>,
+    pub tunnels: Arc<TunnelManager>,
     /// AI 写操作提案暂存（经 `ai_confirm_write` 执行）。
-    pub proposals: crate::ai::proposals::ProposalStore,
+    pub proposals: Arc<crate::ai::proposals::ProposalStore>,
     /// 进行中的导出任务取消标志（task_id → flag）。
     pub exports: Arc<DashMap<String, Arc<AtomicBool>>>,
     /// 进行中的 AI 请求取消令牌（conn_id → token）；`ai_cancel` 触发后中止 agent。
     pub ai_cancels: Arc<DashMap<String, tokio_util::sync::CancellationToken>>,
+    /// 本地 MCP 服务（供外部 AI 工具经 HTTP 连接操作数据库）。
+    pub mcp: crate::mcp::McpServer,
 }
 
 impl AppState {
     pub fn new() -> Self {
+        let conns = Arc::new(ConnectionManager::new());
+        let cred = Arc::new(CredentialService::keyring());
+        let tunnels = Arc::new(TunnelManager::new());
+        let proposals = Arc::new(crate::ai::proposals::ProposalStore::new());
+        let mcp = crate::mcp::McpServer::new(
+            conns.clone(),
+            cred.clone(),
+            tunnels.clone(),
+            proposals.clone(),
+        );
         Self {
-            conns: ConnectionManager::new(),
-            cred: CredentialService::keyring(),
-            tunnels: TunnelManager::new(),
-            proposals: crate::ai::proposals::ProposalStore::new(),
+            conns,
+            cred,
+            tunnels,
+            proposals,
             exports: Arc::new(DashMap::new()),
             ai_cancels: Arc::new(DashMap::new()),
+            mcp,
         }
     }
 }
@@ -389,6 +405,52 @@ pub async fn connect(
             Err(e)
         }
     }
+}
+
+/// 若连接尚未建立则建立（含 SSH 隧道 + 钥匙串凭证），已连接则无操作。
+/// 供 MCP 服务按需自动连接复用；SQL 与 Redis 均登记为「已连接」即视为就绪。
+pub async fn ensure_connected(
+    conns: &ConnectionManager,
+    cred: &CredentialService,
+    tunnels: &TunnelManager,
+    conn_id: &str,
+) -> R<()> {
+    if conns.get(conn_id).is_some() || conns.get_redis(conn_id).is_some() {
+        return Ok(());
+    }
+    let cfg = connection::load_configs()
+        .into_iter()
+        .find(|c| c.id == conn_id)
+        .ok_or_else(|| AppError::Internal("connection not found".into()))?;
+
+    let mut tunnel_id: Option<String> = None;
+    let mut host_override: Option<(String, u16)> = None;
+    if let (Some(ssh), false) = (&cfg.ssh, matches!(cfg.kind, DbKind::Sqlite)) {
+        let pw = cred.get(&keys::conn_ssh_password(&cfg.id))?;
+        let pp = cred.get(&keys::conn_ssh_passphrase(&cfg.id))?;
+        let remote_host = cfg.host.clone().unwrap_or_else(|| "127.0.0.1".into());
+        let remote_port = cfg.port.unwrap_or(connection::default_port(cfg.kind));
+        let (id, addr) = open_tunnel(tunnels, ssh, pw, pp, remote_host, remote_port).await?;
+        tunnel_id = Some(id);
+        host_override = Some(addr);
+    }
+    let target = connection::build_target(cred, &cfg, host_override)?;
+    let dur = |secs: u64| (secs > 0).then(|| std::time::Duration::from_secs(secs));
+    let timeouts = connection::SessionTimeouts {
+        keepalive: dur(cfg.keepalive_secs),
+        read: dur(cfg.read_timeout_secs),
+        write: dur(cfg.write_timeout_secs),
+    };
+    if let Err(e) = conns
+        .connect(&cfg, target, tunnel_id.clone(), timeouts)
+        .await
+    {
+        if let Some(id) = tunnel_id {
+            tunnels.close(&id);
+        }
+        return Err(e);
+    }
+    Ok(())
 }
 
 /// 经 SSH 隧道连接失败时，把隧道层的真实错误拼进报错（数据库驱动只会报「0 bytes at EOF」之类）。
@@ -831,6 +893,66 @@ pub fn get_settings() -> R<Settings> {
 #[tauri::command]
 pub fn set_settings(settings: Settings) -> R<()> {
     settings::save(&settings)
+}
+
+// ---- MCP 本地服务 ---------------------------------------------------------
+
+/// MCP 服务状态（给设置面板展示 + 生成外部工具配置）。
+#[derive(serde::Serialize)]
+pub struct McpStatus {
+    pub running: bool,
+    pub port: u16,
+    /// 持久化设置里的端口（未运行时也据此展示 / 生成配置）。
+    pub configured_port: u16,
+    pub enabled: bool,
+    /// Bearer 令牌（外部工具鉴权需要，本地展示）。
+    pub token: String,
+}
+
+fn mcp_status_of(state: &AppState) -> R<McpStatus> {
+    let st = settings::load();
+    let (running, port) = state.mcp.status();
+    Ok(McpStatus {
+        running,
+        port,
+        configured_port: st.mcp.port,
+        enabled: st.mcp.enabled,
+        token: state.mcp.ensure_token()?,
+    })
+}
+
+#[tauri::command]
+pub fn mcp_status(state: State<'_, AppState>) -> R<McpStatus> {
+    mcp_status_of(&state)
+}
+
+/// 开关 MCP 服务并持久化（enabled + port）。开启时立即启动，关闭时立即停止。
+#[tauri::command]
+pub async fn mcp_set_enabled(state: State<'_, AppState>, enabled: bool, port: u16) -> R<McpStatus> {
+    // 先执行开/关（可能因端口占用失败），成功后再持久化，避免「enabled=true 但没起来」。
+    if enabled {
+        state.mcp.start(port).await?;
+    } else {
+        state.mcp.stop().await;
+    }
+    let mut st = settings::load();
+    st.mcp.enabled = enabled;
+    st.mcp.port = port;
+    settings::save(&st)?;
+    mcp_status_of(&state)
+}
+
+/// 重新生成令牌（旧令牌立即失效；已连接的外部工具需更新配置）。
+#[tauri::command]
+pub fn mcp_rotate_token(state: State<'_, AppState>) -> R<String> {
+    state.mcp.rotate_token()
+}
+
+/// 拒绝一条来自 MCP 的写提案（从暂存丢弃）。
+#[tauri::command]
+pub fn mcp_reject_proposal(state: State<'_, AppState>, proposal_id: String) -> R<()> {
+    state.proposals.take(&proposal_id);
+    Ok(())
 }
 
 // ---- AI（一期：测试连通）-------------------------------------------------

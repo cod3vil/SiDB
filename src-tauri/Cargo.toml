@@ -89,6 +89,9 @@ tauri-plugin-process = "2"
 # AI HTTP (one-shot test connectivity in phase 1; full use in phase 2)
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 
+# 本地 MCP 服务（供 Claude Code / Codex 等外部 AI 工具经 HTTP 连接操作数据库）。
+axum = { version = "0.7", default-features = false, features = ["tokio", "http1", "json"] }
+
 # macOS：运行期设置 Dock / About 面板图标（dev 下也能显示自定义 logo）。
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"

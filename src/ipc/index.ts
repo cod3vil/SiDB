@@ -23,6 +23,7 @@ import type {
   SavedQuery,
   SavedQueryInput,
   Settings,
+  McpStatus,
   ChildTable,
   TableInfo,
   TableRef,
@@ -138,6 +139,14 @@ export const ipc = {
   // 设置
   getSettings: () => invoke<Settings>("get_settings"),
   setSettings: (settings: Settings) => invoke<void>("set_settings", { settings }),
+
+  // MCP 本地服务
+  mcpStatus: () => invoke<McpStatus>("mcp_status"),
+  mcpSetEnabled: (enabled: boolean, port: number) =>
+    invoke<McpStatus>("mcp_set_enabled", { enabled, port }),
+  mcpRotateToken: () => invoke<string>("mcp_rotate_token"),
+  mcpRejectProposal: (proposalId: string) =>
+    invoke<void>("mcp_reject_proposal", { proposalId }),
 
   // AI
   aiTestProvider: (input: {

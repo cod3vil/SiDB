@@ -4,6 +4,7 @@ pub mod adapters;
 pub mod ai;
 pub mod commands;
 pub mod kv;
+pub mod mcp;
 pub mod models;
 pub mod services;
 pub mod sqlsplit;
@@ -45,12 +46,26 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
-        .setup(|_app| {
+        .manage(AppState::new())
+        .setup(|app| {
+            use tauri::Manager;
             #[cfg(target_os = "macos")]
             set_macos_app_icon();
+            // MCP 本地服务：注入 AppHandle；若设置开启则随应用自动启动。
+            let state = app.state::<AppState>();
+            state.mcp.set_app(app.handle().clone());
+            let st = services::settings::load();
+            if st.mcp.enabled {
+                let mcp = state.mcp.clone();
+                let port = st.mcp.port;
+                tauri::async_runtime::spawn(async move {
+                    if let Err(e) = mcp.start(port).await {
+                        tracing::error!("MCP autostart failed: {e}");
+                    }
+                });
+            }
             Ok(())
         })
-        .manage(AppState::new())
         .invoke_handler(tauri::generate_handler![
             commands::list_connections,
             commands::save_connection,
@@ -82,6 +97,10 @@ pub fn run() {
             commands::delete_query,
             commands::get_settings,
             commands::set_settings,
+            commands::mcp_status,
+            commands::mcp_set_enabled,
+            commands::mcp_rotate_token,
+            commands::mcp_reject_proposal,
             commands::ai_test_provider,
             commands::ai_chat,
             commands::ai_cancel,

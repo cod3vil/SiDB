@@ -51,6 +51,30 @@ impl Default for AiSettings {
     }
 }
 
+/// 本地 MCP 服务设置（供外部 AI 工具经 HTTP 连接操作数据库）。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct McpSettings {
+    /// 是否随应用启动自动开启 MCP 服务。
+    #[serde(default)]
+    pub enabled: bool,
+    /// 监听端口（仅绑定 127.0.0.1）。0 表示由系统分配。
+    #[serde(default = "default_mcp_port")]
+    pub port: u16,
+}
+
+fn default_mcp_port() -> u16 {
+    6544
+}
+
+impl Default for McpSettings {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            port: default_mcp_port(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Settings {
     pub theme: Theme,
@@ -62,6 +86,8 @@ pub struct Settings {
     #[serde(default = "default_true")]
     pub auto_check_update: bool,
     pub ai: AiSettings,
+    #[serde(default)]
+    pub mcp: McpSettings,
 }
 
 fn default_true() -> bool {
@@ -78,6 +104,7 @@ impl Default for Settings {
             auto_uppercase_keywords: false,
             auto_check_update: true,
             ai: AiSettings::default(),
+            mcp: McpSettings::default(),
         }
     }
 }

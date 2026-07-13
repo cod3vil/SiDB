@@ -11,6 +11,7 @@ import { NewViewDialog } from "@/components/table/NewViewDialog";
 import { SaveQueryDialog } from "@/components/query/SaveQueryDialog";
 import { TabBar } from "@/components/tab/TabBar";
 import { Toaster } from "@/components/ui/toaster";
+import { Button } from "@/components/ui/button";
 import { SettingsDialog } from "@/components/settings/SettingsDialog";
 import { AiPanel } from "@/components/ai/AiPanel";
 import { RedisWorkspace } from "@/components/redis/RedisWorkspace";
@@ -197,6 +198,8 @@ export default function App() {
 
   const [saveDialog, setSaveDialog] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // 外部 AI 工具经 MCP 发起的写提案队列（待用户确认）。
+  const [mcpProposals, setMcpProposals] = useState<import("@/ipc/types").McpProposal[]>([]);
   // 结果导出弹窗上下文（打开时非空）。
   const [exportCtx, setExportCtx] = useState<{
     connId: string;
@@ -944,6 +947,31 @@ export default function App() {
     };
   }, [t]);
 
+  // MCP 写提案事件 → 入队，弹确认卡片。
+  useEffect(() => {
+    const un = listen<import("@/ipc/types").McpProposal>("mcp-proposal", (e) => {
+      setMcpProposals((q) => (q.some((p) => p.id === e.payload.id) ? q : [...q, e.payload]));
+    });
+    return () => {
+      void un.then((f) => f());
+    };
+  }, []);
+
+  const approveMcpProposal = async (p: import("@/ipc/types").McpProposal) => {
+    try {
+      await ipc.aiConfirmWrite(p.conn_id, p.id);
+      toast.success(t("mcp.proposalApplied"));
+    } catch (e) {
+      toast.error(errorMessage(e));
+    }
+    setMcpProposals((q) => q.filter((x) => x.id !== p.id));
+    bumpTree();
+  };
+  const rejectMcpProposal = async (p: import("@/ipc/types").McpProposal) => {
+    await ipc.mcpRejectProposal(p.id).catch(() => undefined);
+    setMcpProposals((q) => q.filter((x) => x.id !== p.id));
+  };
+
   // 结果导出：由 ResultGrid「导出」按钮触发，收集当前 tab 上下文后开弹窗。
   const requestExport = () => {
     const tab = activeTab;
@@ -1376,8 +1404,61 @@ export default function App() {
 
       {exportCtx && <ExportDialog onClose={() => setExportCtx(null)} onConfirm={doExportResult} />}
 
+      {mcpProposals[0] && (
+        <McpProposalDialog
+          proposal={mcpProposals[0]}
+          remaining={mcpProposals.length - 1}
+          onApprove={() => void approveMcpProposal(mcpProposals[0])}
+          onReject={() => void rejectMcpProposal(mcpProposals[0])}
+        />
+      )}
+
       <ExportProgressLayer />
       <Toaster />
+    </div>
+  );
+}
+
+/** 外部 AI 工具经 MCP 发起的写操作确认卡片。 */
+function McpProposalDialog({
+  proposal,
+  remaining,
+  onApprove,
+  onReject,
+}: {
+  proposal: import("@/ipc/types").McpProposal;
+  remaining: number;
+  onApprove: () => void;
+  onReject: () => void;
+}) {
+  const { t } = useTranslation();
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm">
+      <div className="w-[560px] overflow-hidden rounded-xl border border-border bg-card shadow-2xl">
+        <div className="flex items-center gap-2 border-b border-border px-5 py-3">
+          <i className="ri-robot-2-line text-primary" />
+          <h2 className="text-sm font-semibold text-foreground">{t("mcp.proposalTitle")}</h2>
+          {remaining > 0 && (
+            <span className="ml-auto rounded bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground">
+              +{remaining}
+            </span>
+          )}
+        </div>
+        <div className="space-y-2 px-5 py-4">
+          <p className="text-xs text-muted-foreground">
+            {t("mcp.proposalBody", { conn: proposal.conn_name })}
+          </p>
+          <pre className="max-h-64 overflow-auto rounded-md border border-border bg-muted/50 px-3 py-2 font-mono text-[12px] text-foreground whitespace-pre-wrap">
+            {proposal.sql}
+          </pre>
+        </div>
+        <div className="flex justify-end gap-2 border-t border-border px-5 py-3">
+          <Button variant="secondary" onClick={onReject}>
+            {t("mcp.reject")}
+          </Button>
+          <Button onClick={onApprove}>{t("mcp.approve")}</Button>
+        </div>
+      </div>
     </div>
   );
 }

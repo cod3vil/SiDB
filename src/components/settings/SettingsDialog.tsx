@@ -4,7 +4,7 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ipc } from "@/ipc";
-import type { Settings } from "@/ipc/types";
+import type { Settings, McpStatus } from "@/ipc/types";
 import { errorMessage } from "@/lib/error";
 import { toast } from "@/stores/toast";
 import { Button } from "@/components/ui/button";
@@ -33,7 +33,7 @@ const PROVIDERS = [
   { value: "custom", label: "OpenAI Compatible" },
 ];
 
-type Tab = "general" | "ai" | "update" | "backup";
+type Tab = "general" | "ai" | "mcp" | "update" | "backup";
 
 export function SettingsDialog({ onClose }: Props) {
   const { t } = useTranslation();
@@ -130,6 +130,7 @@ export function SettingsDialog({ onClose }: Props) {
   const tabs: { key: Tab; label: string }[] = [
     { key: "general", label: t("settings.tabGeneral") },
     { key: "ai", label: t("settings.ai") },
+    { key: "mcp", label: t("settings.mcp") },
     { key: "update", label: t("settings.tabUpdate") },
     { key: "backup", label: t("settings.tabBackup") },
   ];
@@ -254,6 +255,8 @@ export function SettingsDialog({ onClose }: Props) {
             </div>
           )}
 
+          {tab === "mcp" && <McpTab onSyncSettings={(mcp) => setSettings((s) => (s ? { ...s, mcp } : s))} />}
+
           {tab === "update" && <UpdateTab autoCheck={autoCheck} setAutoCheck={setAutoCheck} />}
 
           {tab === "backup" && <BackupTab />}
@@ -267,6 +270,175 @@ export function SettingsDialog({ onClose }: Props) {
             {t("settings.save")}
           </Button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+/** MCP 本地服务：开关 / 端口 / 令牌 / 外部工具配置片段。 */
+function McpTab({ onSyncSettings }: { onSyncSettings: (mcp: { enabled: boolean; port: number }) => void }) {
+  const { t } = useTranslation();
+  const [status, setStatus] = useState<McpStatus | null>(null);
+  const [port, setPort] = useState("6544");
+  const [busy, setBusy] = useState(false);
+  const [showToken, setShowToken] = useState(false);
+
+  useEffect(() => {
+    ipc
+      .mcpStatus()
+      .then((s) => {
+        setStatus(s);
+        setPort(String(s.configured_port));
+      })
+      .catch((e) => toast.error(errorMessage(e)));
+  }, []);
+
+  const apply = async (enabled: boolean) => {
+    const p = Math.min(65535, Math.max(0, parseInt(port || "0", 10) || 6544));
+    setBusy(true);
+    try {
+      const s = await ipc.mcpSetEnabled(enabled, p);
+      setStatus(s);
+      setPort(String(s.configured_port));
+      onSyncSettings({ enabled: s.enabled, port: s.configured_port });
+    } catch (e) {
+      toast.error(errorMessage(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const rotate = async () => {
+    setBusy(true);
+    try {
+      const tk = await ipc.mcpRotateToken();
+      setStatus((s) => (s ? { ...s, token: tk } : s));
+      toast.success(t("settings.mcpTokenRotated"));
+    } catch (e) {
+      toast.error(errorMessage(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const copy = (s: string) => {
+    void navigator.clipboard?.writeText(s).catch(() => undefined);
+    toast.success(t("settings.mcpCopied"));
+  };
+
+  if (!status) return <div className="text-sm text-muted-foreground">…</div>;
+
+  const effPort = status.running ? status.port : status.configured_port;
+  const url = `http://127.0.0.1:${effPort}/mcp`;
+  const token = status.token;
+  const maskedToken = showToken ? token : `${token.slice(0, 6)}${"•".repeat(20)}`;
+  const claudeCmd = `claude mcp add --transport http sidb ${url} --header "Authorization: Bearer ${token}"`;
+  const jsonSnippet = JSON.stringify(
+    { mcpServers: { sidb: { type: "http", url, headers: { Authorization: `Bearer ${token}` } } } },
+    null,
+    2,
+  );
+
+  return (
+    <div className="space-y-3">
+      <p className="text-xs text-muted-foreground/80">{t("settings.mcpIntro")}</p>
+
+      <div className="flex items-center gap-2">
+        <Checkbox
+          checked={status.enabled}
+          disabled={busy}
+          onCheckedChange={(v) => void apply(Boolean(v))}
+          id="mcp-enabled"
+        />
+        <Label htmlFor="mcp-enabled" className="cursor-pointer">
+          {t("settings.mcpEnable")}
+        </Label>
+        <span
+          className={cn(
+            "ml-auto rounded px-1.5 py-0.5 text-[11px]",
+            status.running ? "bg-emerald-500/15 text-emerald-500" : "bg-muted text-muted-foreground",
+          )}
+        >
+          {status.running ? t("settings.mcpRunning", { port: status.port }) : t("settings.mcpStopped")}
+        </span>
+      </div>
+
+      <div className="flex items-end gap-2">
+        <div className="flex-1 space-y-1">
+          <Label>{t("settings.mcpPort")}</Label>
+          <Input value={port} onChange={(e) => setPort(e.target.value.replace(/[^0-9]/g, ""))} placeholder="6544" />
+        </div>
+        {status.enabled && (
+          <Button variant="outline" onClick={() => void apply(true)} disabled={busy}>
+            {t("settings.mcpRestart")}
+          </Button>
+        )}
+      </div>
+
+      <p className="rounded-md border border-amber-500/30 bg-amber-500/10 px-2.5 py-2 text-[11px] text-amber-600 dark:text-amber-400">
+        {t("settings.mcpWarn")}
+      </p>
+
+      {/* 令牌 */}
+      <div className="space-y-1">
+        <Label>{t("settings.mcpToken")}</Label>
+        <div className="flex items-center gap-1.5">
+          <code className="flex-1 truncate rounded-md border border-border bg-muted/50 px-2 py-1.5 font-mono text-[11px]">
+            {maskedToken}
+          </code>
+          <Button variant="ghost" size="icon" onClick={() => setShowToken((v) => !v)} title={t("settings.mcpReveal")}>
+            <i className={showToken ? "ri-eye-off-line" : "ri-eye-line"} />
+          </Button>
+          <Button variant="ghost" size="icon" onClick={() => copy(token)} title={t("settings.mcpCopy")}>
+            <i className="ri-file-copy-line" />
+          </Button>
+          <Button variant="ghost" size="icon" onClick={() => void rotate()} disabled={busy} title={t("settings.mcpRotate")}>
+            <i className="ri-refresh-line" />
+          </Button>
+        </div>
+      </div>
+
+      {/* 配置片段 */}
+      <div className="space-y-2 border-t border-border pt-3">
+        <p className="text-xs font-medium text-foreground">{t("settings.mcpConfigTitle")}</p>
+
+        <SnippetBlock label="Endpoint" value={url} onCopy={() => copy(url)} copyLabel={t("settings.mcpCopy")} />
+        <SnippetBlock label="Claude Code" value={claudeCmd} onCopy={() => copy(claudeCmd)} copyLabel={t("settings.mcpCopy")} />
+        <SnippetBlock label={t("settings.mcpJsonLabel")} value={jsonSnippet} onCopy={() => copy(jsonSnippet)} copyLabel={t("settings.mcpCopy")} pre />
+        <p className="text-[11px] text-muted-foreground/70">{t("settings.mcpOtherHint")}</p>
+      </div>
+    </div>
+  );
+}
+
+function SnippetBlock({
+  label,
+  value,
+  onCopy,
+  copyLabel,
+  pre,
+}: {
+  label: string;
+  value: string;
+  onCopy: () => void;
+  copyLabel: string;
+  pre?: boolean;
+}) {
+  return (
+    <div className="space-y-1">
+      <div className="flex items-center justify-between">
+        <span className="text-[11px] text-muted-foreground">{label}</span>
+        <button className="text-[11px] text-primary hover:underline" onClick={onCopy}>
+          {copyLabel}
+        </button>
+      </div>
+      <div
+        className={cn(
+          "rounded-md border border-border bg-muted/50 px-2 py-1.5 font-mono text-[11px] text-foreground/90",
+          pre ? "whitespace-pre-wrap" : "truncate",
+        )}
+      >
+        {value}
       </div>
     </div>
   );

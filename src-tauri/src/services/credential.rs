@@ -28,6 +28,10 @@ pub mod keys {
     pub fn ai_api_key(provider: &str) -> String {
         format!("ai:{provider}:api_key")
     }
+    /// 本地 MCP 服务的 Bearer 令牌（供外部 AI 工具鉴权）。
+    pub fn mcp_token() -> String {
+        "mcp:bearer_token".to_string()
+    }
 }
 
 pub trait CredentialStore: Send + Sync {
