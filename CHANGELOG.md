@@ -5,6 +5,18 @@ This project follows semantic versioning. Dates are release dates.
 
 ---
 
+## v1.3.0
+
+**中文**
+- 新增本地 MCP 服务（设置 → AI → MCP）：本地 AI 工具（Claude Code、Codex 等）可通过 MCP over HTTP 直连并操作数据库。服务仅监听 `127.0.0.1`，Bearer Token 鉴权，Token 存于系统钥匙串，可一键复制 / 重置及查看接入配置片段。
+- MCP 能力为「读 + 批准写」：暴露 `list_connections / list_databases / list_schemas / list_tables / get_schema / run_read_query / propose_write` 七个工具。只读查询强制单语句、只读、`LIMIT 1000`、30s 超时；任何写操作只生成提案，需在 SiDB 界面人工确认后才执行。已保存连接按需自动连接。Redis 暂不经 MCP 暴露。
+- 结果集编辑：布尔类型字段改为双击弹出 `true` / `false`（可空列含 `NULL`）下拉选择，不再手填文本。
+
+**English**
+- Added a local MCP service (Settings → AI → MCP): local AI tools (Claude Code, Codex, …) can connect over MCP-on-HTTP to operate your databases. The service binds `127.0.0.1` only, uses Bearer-token auth with the token stored in the system keychain, and offers one-click copy / rotate plus ready-to-paste client config snippets.
+- MCP is "read + approve writes": it exposes seven tools — `list_connections / list_databases / list_schemas / list_tables / get_schema / run_read_query / propose_write`. Read queries are forced single-statement, read-only, `LIMIT 1000`, 30s timeout; any write becomes a proposal that must be approved in the SiDB UI before it runs. Saved connections auto-connect on demand. Redis is not exposed over MCP yet.
+- Result-grid editing: boolean cells now edit via a double-click `true` / `false` dropdown (plus `NULL` for nullable columns) instead of typing text.
+
 ## v1.2.12
 
 **中文**
