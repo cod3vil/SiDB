@@ -51,7 +51,7 @@ interface FormState {
   sshHost: string;
   sshPort: string;
   sshUser: string;
-  sshAuth: "password" | "key";
+  sshAuth: "password" | "key" | "password_key";
   sshKeyPath: string;
   sshPassword: string;
   sshPassphrase: string;
@@ -169,6 +169,9 @@ export function ConnectionDialog({ initial, initialGroup, onClose, onSaved }: Pr
 
   const buildInput = (): ConnConfigInput => {
     const port = f.port.trim() ? Number(f.port) : null;
+    // 认证方式决定各凭证是否随连接保存：私钥/口令用于 key 与 password_key，密码用于 password 与 password_key。
+    const usesKey = f.sshAuth === "key" || f.sshAuth === "password_key";
+    const usesPassword = f.sshAuth === "password" || f.sshAuth === "password_key";
     const ssh =
       !isSqlite && f.sshEnabled
         ? {
@@ -176,7 +179,7 @@ export function ConnectionDialog({ initial, initialGroup, onClose, onSaved }: Pr
             port: Number(f.sshPort) || 22,
             user: f.sshUser,
             auth: f.sshAuth,
-            key_path: f.sshAuth === "key" ? f.sshKeyPath || null : null,
+            key_path: usesKey ? f.sshKeyPath || null : null,
           }
         : null;
     return {
@@ -197,8 +200,9 @@ export function ConnectionDialog({ initial, initialGroup, onClose, onSaved }: Pr
       write_timeout_secs: Number(f.writeTimeout) || 0,
       sqlite_path: isSqlite ? f.sqlitePath.trim() : null,
       ssh,
-      ssh_password: ssh && f.sshAuth === "password" ? f.sshPassword : null,
-      ssh_passphrase: ssh && f.sshAuth === "key" ? f.sshPassphrase || null : null,
+      // 空串→null：编辑时留空表示沿用钥匙串已存的凭证，不覆盖。
+      ssh_password: ssh && usesPassword ? f.sshPassword || null : null,
+      ssh_passphrase: ssh && usesKey ? f.sshPassphrase || null : null,
     };
   };
 
@@ -411,16 +415,16 @@ export function ConnectionDialog({ initial, initialGroup, onClose, onSaved }: Pr
                   <Field label={t("conn.sshAuth")}>
                     <Select
                       value={f.sshAuth}
-                      onChange={(v) => set({ sshAuth: v as "password" | "key" })}
-                      options={["password", "key"]}
-                      labels={{ password: t("conn.sshAuthPassword"), key: t("conn.sshAuthKey") }}
+                      onChange={(v) => set({ sshAuth: v as FormState["sshAuth"] })}
+                      options={["password", "key", "password_key"]}
+                      labels={{
+                        password: t("conn.sshAuthPassword"),
+                        key: t("conn.sshAuthKey"),
+                        password_key: t("conn.sshAuthPasswordKey"),
+                      }}
                     />
                   </Field>
-                  {f.sshAuth === "password" ? (
-                    <Field label={t("conn.sshAuthPassword")}>
-                      <Input type="password" value={f.sshPassword} onChange={(v) => set({ sshPassword: v })} />
-                    </Field>
-                  ) : (
+                  {(f.sshAuth === "key" || f.sshAuth === "password_key") && (
                     <>
                       <Field label={t("conn.sshKeyPath")}>
                         <div className="flex gap-1.5">
@@ -432,6 +436,11 @@ export function ConnectionDialog({ initial, initialGroup, onClose, onSaved }: Pr
                         <Input type="password" value={f.sshPassphrase} onChange={(v) => set({ sshPassphrase: v })} />
                       </Field>
                     </>
+                  )}
+                  {(f.sshAuth === "password" || f.sshAuth === "password_key") && (
+                    <Field label={t("conn.sshAuthPassword")}>
+                      <Input type="password" value={f.sshPassword} onChange={(v) => set({ sshPassword: v })} />
+                    </Field>
                   )}
                 </div>
               )}

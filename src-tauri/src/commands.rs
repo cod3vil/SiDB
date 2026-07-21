@@ -99,6 +99,19 @@ async fn open_tunnel(
                 passphrase: ssh_passphrase,
             }
         }
+        SshAuthKind::PasswordKey => {
+            let path = ssh
+                .key_path
+                .clone()
+                .ok_or_else(|| AppError::Ssh("缺少私钥路径".into()))?;
+            let pem = std::fs::read_to_string(&path)
+                .map_err(|e| AppError::Ssh(format!("读取私钥失败: {e}")))?;
+            SshAuth::PasswordKey {
+                pem,
+                passphrase: ssh_passphrase,
+                password: ssh_password.ok_or_else(|| AppError::Ssh("缺少 SSH 密码".into()))?,
+            }
+        }
     };
     let spec = TunnelSpec {
         ssh_host: ssh.host.clone(),

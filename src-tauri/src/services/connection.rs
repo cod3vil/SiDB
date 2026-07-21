@@ -19,6 +19,9 @@ use std::time::Duration;
 pub enum SshAuthKind {
     Password,
     Key,
+    /// 同时使用私钥与密码（服务器要求两者都过，publickey + password）。
+    #[serde(rename = "password_key")]
+    PasswordKey,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

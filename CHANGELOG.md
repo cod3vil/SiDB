@@ -5,6 +5,16 @@ This project follows semantic versioning. Dates are release dates.
 
 ---
 
+## v1.3.1
+
+**中文**
+- SSH 隧道认证新增「密码 + 公钥」方式：服务器要求同时通过公钥与密码认证时可用（先做 publickey，未完成再补密码）。认证方式下拉现为 密码 / 公钥 / 密码 + 公钥；选公钥时仍通过「浏览」选取私钥文件。
+- 修复：编辑既有连接时，SSH 密码 / 私钥口令留空不再覆盖钥匙串中已存的凭证。
+
+**English**
+- SSH tunneling adds a "Password + public key" auth method for servers that require both publickey and password (publickey first, then password if the server asks for more). The auth dropdown is now Password / Public key / Password + public key; picking a key still selects the private-key file via "Browse".
+- Fixed: leaving the SSH password / key passphrase blank when editing a connection no longer overwrites the credential stored in the keychain.
+
 ## v1.3.0
 
 **中文**

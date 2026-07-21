@@ -132,7 +132,7 @@ export interface SshConfig {
   host: string;
   port: number;
   user: string;
-  auth: "password" | "key";
+  auth: "password" | "key" | "password_key";
   key_path: string | null;
 }
 

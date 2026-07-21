@@ -21,6 +21,12 @@ pub enum SshAuth {
         pem: String,
         passphrase: Option<String>,
     },
+    /// 私钥 + 密码：服务器要求两种方法都通过（publickey 后再 password）。
+    PasswordKey {
+        pem: String,
+        passphrase: Option<String>,
+        password: String,
+    },
 }
 
 #[derive(Clone)]
@@ -93,6 +99,28 @@ impl TunnelManager {
                     .authenticate_publickey(&spec.ssh_user, Arc::new(key))
                     .await
                     .map_err(|e| AppError::Ssh(format!("auth: {e}")))?
+            }
+            SshAuth::PasswordKey {
+                pem,
+                passphrase,
+                password,
+            } => {
+                let key = russh::keys::decode_secret_key(pem, passphrase.as_deref())
+                    .map_err(|e| AppError::Ssh(format!("key decode: {e}")))?;
+                // 先做 publickey；若服务器仅部分通过（要求继续 password），会返回 false，
+                // 同一会话继续 password 认证即可完成。若 publickey 已完成则无需再发密码。
+                let ok_key = session
+                    .authenticate_publickey(&spec.ssh_user, Arc::new(key))
+                    .await
+                    .map_err(|e| AppError::Ssh(format!("auth: {e}")))?;
+                if ok_key {
+                    true
+                } else {
+                    session
+                        .authenticate_password(&spec.ssh_user, password)
+                        .await
+                        .map_err(|e| AppError::Ssh(format!("auth: {e}")))?
+                }
             }
         };
         if !authed {
