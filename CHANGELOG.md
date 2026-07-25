@@ -5,6 +5,14 @@ This project follows semantic versioning. Dates are release dates.
 
 ---
 
+## v1.3.3
+
+**中文**
+- 修复 MySQL / MariaDB 的 `DECIMAL`（`decimal` / `numeric` / `dec` / `fixed`）列在结果集与表浏览里显示为空的问题。二进制协议下 `NEWDECIMAL` 既非字符串也非二进制，旧解码两路都失败而回退空串；现直接读原始字节按数字串还原，`SELECT 1.50`、聚合 `SUM/MAX`、decimal 列均能正常显示。
+
+**English**
+- Fixed MySQL / MariaDB `DECIMAL` (`decimal` / `numeric` / `dec` / `fixed`) columns showing blank in query results and table browsing. Under the binary protocol `NEWDECIMAL` is neither a string nor a blob, so the old decoder failed both paths and fell back to an empty string; it now reads the raw bytes as the numeric string. Decimal literals (`SELECT 1.50`), `SUM`/`MAX` aggregates, and decimal columns all display correctly again.
+
 ## v1.3.2
 
 **中文**

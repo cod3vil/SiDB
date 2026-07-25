@@ -158,7 +158,14 @@ fn string_via_bytes(row: &MySqlRow, i: usize) -> String {
     if let Ok(s) = row.try_get::<String, _>(i) {
         return s;
     }
-    match row.try_get::<Vec<u8>, _>(i) {
+    if let Ok(b) = row.try_get::<Vec<u8>, _>(i) {
+        return String::from_utf8_lossy(&b).into_owned();
+    }
+    // DECIMAL/NEWDECIMAL：sqlx 的类型兼容检查会同时拒绝 String 与 Vec<u8>
+    // （NEWDECIMAL 既非字符串也非 BLOB），上面两路都 Err 便回空串——DECIMAL 列
+    // 因此整列显示为空。`try_get_unchecked` 跳过兼容检查直接取原始字节；二进制
+    // 协议下 DECIMAL 的原始字节就是 ASCII 数字串（如 "0.00"），按 UTF-8 还原即可。
+    match row.try_get_unchecked::<Vec<u8>, _>(i) {
         Ok(b) => String::from_utf8_lossy(&b).into_owned(),
         Err(_) => String::new(),
     }
