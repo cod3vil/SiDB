@@ -1,7 +1,10 @@
 export default {
   "app": {
     "title": "SiDB",
-    "subtitle": "عميل قاعدة بيانات خفيف بالذكاء الاصطناعي"
+    "subtitle": "عميل قاعدة بيانات خفيف بالذكاء الاصطناعي",
+    "updateTag": "إصدار جديد",
+    "updateInstalling": "جارٍ التحديث",
+    "updateTagHint": "انقر للتحديث إلى v{{v}}"
   },
   "common": {
     "cancel": "إلغاء",

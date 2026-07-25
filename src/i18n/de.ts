@@ -1,7 +1,10 @@
 export default {
   "app": {
     "title": "SiDB",
-    "subtitle": "KI-basierter, leichtgewichtiger DB-Client"
+    "subtitle": "KI-basierter, leichtgewichtiger DB-Client",
+    "updateTag": "Neue Version",
+    "updateInstalling": "Aktualisiere",
+    "updateTagHint": "Klicken, um auf v{{v}} zu aktualisieren"
   },
   "common": {
     "cancel": "Abbrechen",

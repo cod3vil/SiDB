@@ -71,11 +71,16 @@ export default {
           from: { opacity: "0", transform: "translateY(-8px)" },
           to: { opacity: "1", transform: "translateY(0)" },
         },
+        breathe: {
+          "0%, 100%": { opacity: "1", boxShadow: "0 0 0 0 rgba(16,185,129,0.5)" },
+          "50%": { opacity: "0.7", boxShadow: "0 0 0 4px rgba(16,185,129,0)" },
+        },
       },
       animation: {
         "accordion-down": "accordion-down 0.2s ease-out",
         "accordion-up": "accordion-up 0.2s ease-out",
         "toast-in": "toast-in 0.16s ease-out",
+        breathe: "breathe 1.8s ease-in-out infinite",
       },
     },
   },

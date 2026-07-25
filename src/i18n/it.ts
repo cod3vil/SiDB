@@ -1,7 +1,10 @@
 export default {
   "app": {
     "title": "SiDB",
-    "subtitle": "Client DB leggero con AI"
+    "subtitle": "Client DB leggero con AI",
+    "updateTag": "Nuova versione",
+    "updateInstalling": "Aggiornamento",
+    "updateTagHint": "Clicca per aggiornare a v{{v}}"
   },
   "common": {
     "cancel": "Annulla",

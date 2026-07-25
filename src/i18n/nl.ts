@@ -1,7 +1,10 @@
 export default {
   "app": {
     "title": "SiDB",
-    "subtitle": "AI Lichtgewicht DB-client"
+    "subtitle": "AI Lichtgewicht DB-client",
+    "updateTag": "Nieuwe versie",
+    "updateInstalling": "Bijwerken",
+    "updateTagHint": "Klik om bij te werken naar v{{v}}"
   },
   "common": {
     "cancel": "Annuleren",

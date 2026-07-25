@@ -1,7 +1,10 @@
 export default {
   "app": {
     "title": "SiDB",
-    "subtitle": "Klien Basis Data Ringan dengan AI"
+    "subtitle": "Klien Basis Data Ringan dengan AI",
+    "updateTag": "Versi baru",
+    "updateInstalling": "Memperbarui",
+    "updateTagHint": "Klik untuk memperbarui ke v{{v}}"
   },
   "common": {
     "cancel": "Batal",

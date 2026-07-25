@@ -1,7 +1,10 @@
 export default {
   "app": {
     "title": "SiDB",
-    "subtitle": "AI हल्का DB क्लाइंट"
+    "subtitle": "AI हल्का DB क्लाइंट",
+    "updateTag": "नया संस्करण",
+    "updateInstalling": "अपडेट हो रहा है",
+    "updateTagHint": "v{{v}} में अपडेट करने के लिए क्लिक करें"
   },
   "common": {
     "cancel": "रद्द करें",

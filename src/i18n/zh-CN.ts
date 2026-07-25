@@ -1,7 +1,7 @@
 // 中文文案。
 
 export default {
-  app: { title: "SiDB", subtitle: "AI 轻量数据库客户端" },
+  app: { title: "SiDB", subtitle: "AI 轻量数据库客户端", updateTag: "有新版本", updateInstalling: "更新中", updateTagHint: "点击更新到 v{{v}}" },
   common: {
     cancel: "取消",
     close: "关闭",

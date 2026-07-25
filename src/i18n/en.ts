@@ -1,7 +1,7 @@
 // English copy.
 
 export default {
-  app: { title: "SiDB", subtitle: "AI Lightweight DB Client" },
+  app: { title: "SiDB", subtitle: "AI Lightweight DB Client", updateTag: "New version", updateInstalling: "Updating", updateTagHint: "Click to update to v{{v}}" },
   common: {
     cancel: "Cancel",
     close: "Close",

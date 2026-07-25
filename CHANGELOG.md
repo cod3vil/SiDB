@@ -5,6 +5,14 @@ This project follows semantic versioning. Dates are release dates.
 
 ---
 
+## v1.3.2
+
+**中文**
+- 有新版本时更醒目：顶部标题栏版本号旁新增一个呼吸动效的「有新版本」小标签，点击即开始下载安装并自动重启（下载中显示进度百分比）。此前发现新版本仅弹一次提示，容易被忽略。
+
+**English**
+- New versions are now more noticeable: a breathing "New version" tag appears next to the version number in the title bar; click it to download, install, and auto-restart (progress percentage shown while downloading). Previously an update only surfaced as a one-time toast that was easy to miss.
+
 ## v1.3.1
 
 **中文**

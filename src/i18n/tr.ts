@@ -1,7 +1,10 @@
 export default {
   "app": {
     "title": "SiDB",
-    "subtitle": "AI Destekli Hafif Veritabanı İstemcisi"
+    "subtitle": "AI Destekli Hafif Veritabanı İstemcisi",
+    "updateTag": "Yeni sürüm",
+    "updateInstalling": "Güncelleniyor",
+    "updateTagHint": "v{{v}} sürümüne güncellemek için tıklayın"
   },
   "common": {
     "cancel": "İptal",

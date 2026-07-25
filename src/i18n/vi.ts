@@ -1,7 +1,10 @@
 export default {
   "app": {
     "title": "SiDB",
-    "subtitle": "Trình khách CSDL nhẹ tích hợp AI"
+    "subtitle": "Trình khách CSDL nhẹ tích hợp AI",
+    "updateTag": "Phiên bản mới",
+    "updateInstalling": "Đang cập nhật",
+    "updateTagHint": "Nhấp để cập nhật lên v{{v}}"
   },
   "common": {
     "cancel": "Hủy",

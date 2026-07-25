@@ -1,7 +1,10 @@
 export default {
   "app": {
     "title": "SiDB",
-    "subtitle": "Лёгкий клиент БД с ИИ"
+    "subtitle": "Лёгкий клиент БД с ИИ",
+    "updateTag": "Новая версия",
+    "updateInstalling": "Обновление",
+    "updateTagHint": "Нажмите, чтобы обновить до v{{v}}"
   },
   "common": {
     "cancel": "Отмена",

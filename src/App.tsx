@@ -38,7 +38,7 @@ import { useExports } from "@/stores/export";
 import { toast } from "@/stores/toast";
 import { save as saveFileDialog, open as openFileDialog } from "@tauri-apps/plugin-dialog";
 import { listen } from "@tauri-apps/api/event";
-import { checkUpdate } from "@/lib/update";
+import { checkUpdate, installUpdate, type Update } from "@/lib/update";
 import { errorMessage } from "@/lib/error";
 import { LANGUAGES, setLanguage } from "@/i18n";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -198,6 +198,10 @@ export default function App() {
 
   const [saveDialog, setSaveDialog] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // 启动检查到的新版本（非空时顶部标题旁显示呼吸提示，点击即更新）。
+  const [availableUpdate, setAvailableUpdate] = useState<Update | null>(null);
+  const [updating, setUpdating] = useState(false);
+  const [updatePct, setUpdatePct] = useState<number | null>(null);
   // 外部 AI 工具经 MCP 发起的写提案队列（待用户确认）。
   const [mcpProposals, setMcpProposals] = useState<import("@/ipc/types").McpProposal[]>([]);
   // 结果导出弹窗上下文（打开时非空）。
@@ -919,7 +923,10 @@ export default function App() {
         if (!s.auto_check_update) return;
         checkUpdate()
           .then((u) => {
-            if (u) toast.info(t("settings.newVersionToast", { v: u.version }));
+            if (u) {
+              setAvailableUpdate(u);
+              toast.info(t("settings.newVersionToast", { v: u.version }));
+            }
           })
           .catch(() => undefined);
       })
@@ -970,6 +977,21 @@ export default function App() {
   const rejectMcpProposal = async (p: import("@/ipc/types").McpProposal) => {
     await ipc.mcpRejectProposal(p.id).catch(() => undefined);
     setMcpProposals((q) => q.filter((x) => x.id !== p.id));
+  };
+
+  // 顶部「发现新版本」呼吸标签点击：下载并安装，完成后自动重启。
+  const startUpdate = async () => {
+    if (!availableUpdate || updating) return;
+    setUpdating(true);
+    setUpdatePct(0);
+    try {
+      await installUpdate(availableUpdate, setUpdatePct);
+      // 安装成功后 installUpdate 内部会 relaunch，一般走不到这里。
+    } catch (e) {
+      setUpdating(false);
+      setUpdatePct(null);
+      toast.error(errorMessage(e));
+    }
   };
 
   // 结果导出：由 ResultGrid「导出」按钮触发，收集当前 tab 上下文后开弹窗。
@@ -1062,6 +1084,31 @@ export default function App() {
           <span className="rounded bg-muted px-1.5 py-px text-[10px] font-medium text-muted-foreground">
             v{version}
           </span>
+          {availableUpdate && (
+            <button
+              onClick={startUpdate}
+              disabled={updating}
+              title={t("app.updateTagHint", { v: availableUpdate.version })}
+              className={cn(
+                "flex items-center gap-1 rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2 py-px text-[10px] font-medium text-emerald-600 dark:text-emerald-400",
+                updating
+                  ? "cursor-default"
+                  : "animate-breathe cursor-pointer hover:bg-emerald-500/20",
+              )}
+            >
+              {updating ? (
+                <>
+                  <i className="ri-loader-4-line animate-spin" />
+                  {updatePct == null ? t("app.updateInstalling") : `${updatePct}%`}
+                </>
+              ) : (
+                <>
+                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                  {t("app.updateTag")}
+                </>
+              )}
+            </button>
+          )}
           <span className="text-[11px] text-muted-foreground/70">{t("app.subtitle")}</span>
         </div>
         <div className="ml-auto flex items-center gap-1">

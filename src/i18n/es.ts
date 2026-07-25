@@ -1,7 +1,10 @@
 export default {
   "app": {
     "title": "SiDB",
-    "subtitle": "Cliente de BD ligero con IA"
+    "subtitle": "Cliente de BD ligero con IA",
+    "updateTag": "Nueva versión",
+    "updateInstalling": "Actualizando",
+    "updateTagHint": "Haz clic para actualizar a v{{v}}"
   },
   "common": {
     "cancel": "Cancelar",

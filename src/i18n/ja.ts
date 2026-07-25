@@ -1,7 +1,10 @@
 export default {
   "app": {
     "title": "SiDB",
-    "subtitle": "AI 軽量 DB クライアント"
+    "subtitle": "AI 軽量 DB クライアント",
+    "updateTag": "新バージョン",
+    "updateInstalling": "更新中",
+    "updateTagHint": "クリックして v{{v}} に更新"
   },
   "common": {
     "cancel": "キャンセル",

@@ -1,7 +1,10 @@
 export default {
   "app": {
     "title": "SiDB",
-    "subtitle": "AI 輕量資料庫用戶端"
+    "subtitle": "AI 輕量資料庫用戶端",
+    "updateTag": "有新版本",
+    "updateInstalling": "更新中",
+    "updateTagHint": "點擊更新到 v{{v}}"
   },
   "common": {
     "cancel": "取消",

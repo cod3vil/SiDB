@@ -1,7 +1,10 @@
 export default {
   "app": {
     "title": "SiDB",
-    "subtitle": "ไคลเอนต์ฐานข้อมูลน้ำหนักเบาพร้อม AI"
+    "subtitle": "ไคลเอนต์ฐานข้อมูลน้ำหนักเบาพร้อม AI",
+    "updateTag": "เวอร์ชันใหม่",
+    "updateInstalling": "กำลังอัปเดต",
+    "updateTagHint": "คลิกเพื่ออัปเดตเป็น v{{v}}"
   },
   "common": {
     "cancel": "ยกเลิก",
