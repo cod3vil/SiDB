@@ -5,6 +5,14 @@ This project follows semantic versioning. Dates are release dates.
 
 ---
 
+## v1.3.5
+
+**中文**
+- 修复 MySQL / MariaDB 的 `DATE` / `TIME` / `DATETIME` / `TIMESTAMP` 列在结果集与表浏览里显示为乱码（如 `\u{7}\u{fffd}\u{7}…`）的问题。二进制协议下这些类型不是文本而是「打包结构」（首字节为长度，年份为小端 u16 等），上一版（1.3.3 修 DECIMAL 时新增的原始字节兜底）把打包字节按 UTF-8 直接读，于是成了乱码。现按打包格式正确解码，`DATETIME(6)` 的微秒、超过 24 小时或为负的 `TIME`（如 `838:59:59`）、以及零值日期 `0000-00-00` 均能正确显示。
+
+**English**
+- Fixed MySQL / MariaDB `DATE` / `TIME` / `DATETIME` / `TIMESTAMP` columns rendering as garbage (e.g. `\u{7}\u{fffd}\u{7}…`) in query results and table browsing. Under the binary protocol these are not text but a packed structure (leading length byte, little-endian u16 year, etc.); the previous release (the raw-byte fallback added in 1.3.3 for DECIMAL) read the packed bytes as UTF-8, producing garbage. They are now decoded per the packed format — `DATETIME(6)` microseconds, `TIME` values beyond 24h or negative (e.g. `838:59:59`), and the zero date `0000-00-00` all display correctly.
+
 ## v1.3.4
 
 **中文**

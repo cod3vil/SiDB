@@ -130,30 +130,16 @@ fn decode_cell(row: &MySqlRow, i: usize, kind: &str) -> Result<Value> {
                 None => bytes_value(&b),
             }
         }
-        "Date" => {
-            let s = string_via_bytes(row, i);
-            if is_mysql_zero_date(&s) {
-                Value::Text(s)
-            } else {
-                Value::Date(s)
-            }
-        }
-        "Time" => Value::Time(string_via_bytes(row, i)),
-        "DateTime" => {
-            let s = string_via_bytes(row, i);
-            if is_mysql_zero_date(&s) {
-                Value::Text(s)
-            } else {
-                Value::DateTime(s)
-            }
-        }
+        "Date" | "Time" | "DateTime" => decode_temporal(row, i, kind),
         _ => Value::Text(string_via_bytes(row, i)),
     };
     Ok(v)
 }
 
-/// MySQL 的 DATE/DATETIME/DECIMAL 以及 information_schema 文本列在 sqlx 二进制协议下
-/// 常被报成 BLOB，无法直接 `try_get::<String>`；退化为按原始字节解释为 UTF-8。
+/// MySQL 的 DECIMAL 以及 information_schema 文本列在 sqlx 二进制协议下常被报成 BLOB，
+/// 无法直接 `try_get::<String>`；退化为按原始字节解释为 UTF-8。
+/// 注意：时间类型（DATE/TIME/DATETIME/TIMESTAMP）不能走这里——二进制协议下它们是
+/// 打包结构而非文本，请用 [`decode_temporal`]。
 fn string_via_bytes(row: &MySqlRow, i: usize) -> String {
     if let Ok(s) = row.try_get::<String, _>(i) {
         return s;
@@ -168,6 +154,108 @@ fn string_via_bytes(row: &MySqlRow, i: usize) -> String {
     match row.try_get_unchecked::<Vec<u8>, _>(i) {
         Ok(b) => String::from_utf8_lossy(&b).into_owned(),
         Err(_) => String::new(),
+    }
+}
+
+/// 解码 MySQL 的 DATE / TIME / DATETIME / TIMESTAMP。
+///
+/// sqlx 二进制协议下这些类型不是文本而是「打包结构」，直接把原始字节按 UTF-8 读会
+/// 得到乱码（例如 DATETIME 的年份是小端 u16）。这里按打包格式手工解码；零值日期
+/// （`0000-00-00`）与文本协议下的字符串也一并处理。
+fn decode_temporal(row: &MySqlRow, i: usize, kind: &str) -> Value {
+    let bytes = row.try_get_unchecked::<Vec<u8>, _>(i).unwrap_or_default();
+    let s = format_mysql_temporal(kind, &bytes);
+    match kind {
+        "Date" if !is_mysql_zero_date(&s) => Value::Date(s),
+        "DateTime" if !is_mysql_zero_date(&s) => Value::DateTime(s),
+        "Time" => Value::Time(s),
+        _ => Value::Text(s), // 零值日期 0000-00-00[ 00:00:00]
+    }
+}
+
+/// 把 MySQL 打包/文本形式的时间字节格式化为字符串。纯函数，便于单测。
+///
+/// 二进制打包结构（首字节 `len` 为其后数据长度）：
+/// - DATE      `len>=4`：year(u16 LE) month day
+/// - DATETIME  `len>=7`：… hour min sec，`len>=11` 再带 micros(u32 LE)
+/// - TIME      `len>=8`：is_neg days(u32 LE) hour min sec，`len>=12` 再带 micros(u32 LE)
+/// - `len==0` 表示零值。
+///
+/// 文本协议下值本身即字符串（首字节为可打印 ASCII，>= 0x20），原样返回；
+/// 而合法的打包 `len`（0/4/7/8/11/12）都 < 0x20，二者不会混淆。
+fn format_mysql_temporal(kind: &str, bytes: &[u8]) -> String {
+    if bytes.first().is_some_and(|b| *b >= 0x20) {
+        return String::from_utf8_lossy(bytes).into_owned();
+    }
+    fn at(b: &[u8], i: usize) -> u32 {
+        b.get(i).copied().unwrap_or(0) as u32
+    }
+    fn u16le(b: &[u8], o: usize) -> u32 {
+        at(b, o) | (at(b, o + 1) << 8)
+    }
+    fn u32le(b: &[u8], o: usize) -> u32 {
+        at(b, o) | (at(b, o + 1) << 8) | (at(b, o + 2) << 16) | (at(b, o + 3) << 24)
+    }
+    let len = at(bytes, 0) as usize;
+    match kind {
+        "Time" => {
+            if len == 0 {
+                return "00:00:00".to_string();
+            }
+            let hours = u32le(bytes, 2) * 24 + at(bytes, 6);
+            let mut s = format!(
+                "{}{:02}:{:02}:{:02}",
+                if at(bytes, 1) != 0 { "-" } else { "" },
+                hours,
+                at(bytes, 7),
+                at(bytes, 8),
+            );
+            if len >= 12 {
+                let micros = u32le(bytes, 9);
+                if micros > 0 {
+                    s.push_str(&format!(".{:06}", micros));
+                }
+            }
+            s
+        }
+        "Date" => {
+            if len < 4 {
+                return "0000-00-00".to_string();
+            }
+            format!(
+                "{:04}-{:02}-{:02}",
+                u16le(bytes, 1),
+                at(bytes, 3),
+                at(bytes, 4)
+            )
+        }
+        // DateTime / Timestamp
+        _ => {
+            if len < 4 {
+                return "0000-00-00 00:00:00".to_string();
+            }
+            let (h, mi, se) = if len >= 7 {
+                (at(bytes, 5), at(bytes, 6), at(bytes, 7))
+            } else {
+                (0, 0, 0)
+            };
+            let mut s = format!(
+                "{:04}-{:02}-{:02} {:02}:{:02}:{:02}",
+                u16le(bytes, 1),
+                at(bytes, 3),
+                at(bytes, 4),
+                h,
+                mi,
+                se,
+            );
+            if len >= 11 {
+                let micros = u32le(bytes, 8);
+                if micros > 0 {
+                    s.push_str(&format!(".{:06}", micros));
+                }
+            }
+            s
+        }
     }
 }
 
@@ -730,5 +818,67 @@ mod tests {
         // 含非空白控制字符（如 NUL）。
         assert_eq!(text_from_bytes(&[0x01, 0x02, 0x03, 0x04]), None);
         assert_eq!(text_from_bytes(b"ab\0cd"), None);
+    }
+
+    #[test]
+    fn temporal_binary_packed_decodes() {
+        // DATETIME 2024-06-15 21:51:16（本次线上乱码的原始字节）。
+        assert_eq!(
+            format_mysql_temporal(
+                "DateTime",
+                &[0x07, 0xE8, 0x07, 0x06, 0x0F, 0x15, 0x33, 0x10]
+            ),
+            "2024-06-15 21:51:16"
+        );
+        // DATE 2026-08-06（len=4）。
+        assert_eq!(
+            format_mysql_temporal("Date", &[0x04, 0xEA, 0x07, 0x08, 0x06]),
+            "2026-08-06"
+        );
+        // TIME 08:18:23（len=8：neg=0 days=0 h=8 m=18 s=23）。
+        assert_eq!(
+            format_mysql_temporal(
+                "Time",
+                &[0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x08, 0x12, 0x17]
+            ),
+            "08:18:23"
+        );
+    }
+
+    #[test]
+    fn temporal_binary_micros_and_edges() {
+        // DATETIME(6) 带微秒：len=11，micros=123456。
+        assert_eq!(
+            format_mysql_temporal(
+                "DateTime",
+                &[0x0B, 0xE8, 0x07, 0x06, 0x0F, 0x15, 0x33, 0x10, 0x40, 0xE2, 0x01, 0x00]
+            ),
+            "2024-06-15 21:51:16.123456"
+        );
+        // TIME 跨天 + 负号：len=12，neg=1 days=1 h=10 → 34:00:00。
+        assert_eq!(
+            format_mysql_temporal(
+                "Time",
+                &[0x0C, 0x01, 0x01, 0x00, 0x00, 0x00, 0x0A, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+            ),
+            "-34:00:00"
+        );
+        // 零值（len=0）。
+        assert_eq!(
+            format_mysql_temporal("DateTime", &[0x00]),
+            "0000-00-00 00:00:00"
+        );
+        assert_eq!(format_mysql_temporal("Date", &[0x00]), "0000-00-00");
+        assert_eq!(format_mysql_temporal("Time", &[0x00]), "00:00:00");
+    }
+
+    #[test]
+    fn temporal_text_protocol_passthrough() {
+        // 文本协议：值本身即字符串（首字节为 ASCII '2' >= 0x20），原样返回。
+        assert_eq!(
+            format_mysql_temporal("DateTime", b"2024-06-15 21:51:16"),
+            "2024-06-15 21:51:16"
+        );
+        assert_eq!(format_mysql_temporal("Date", b"0000-00-00"), "0000-00-00");
     }
 }
