@@ -5,6 +5,14 @@ This project follows semantic versioning. Dates are release dates.
 
 ---
 
+## v1.3.4
+
+**中文**
+- 修复 MySQL / MariaDB 连接在 `lower_case_table_names=0`（大小写敏感）实例上「数据库列表为空、连接看似连不上」的问题。此类实例的 `information_schema.schemata.schema_name` 为二进制照合（`utf8mb3_bin`），会被 sqlx 报成 BLOB，`list_databases` 旧代码用严格的 `try_get::<String>` 取值失败后被静默丢弃，导致整个库列表为空（连接其实完全正常）。现改为与表/列读取一致的字节容错取值，能正确列出库。
+
+**English**
+- Fixed MySQL / MariaDB connections showing an empty database list (appearing "unable to connect") on instances with `lower_case_table_names=0` (case-sensitive). On such instances `information_schema.schemata.schema_name` uses a binary collation (`utf8mb3_bin`) that sqlx reports as BLOB; `list_databases` used a strict `try_get::<String>` that failed and was silently dropped, leaving the whole list empty even though the connection was fine. It now uses the same byte-tolerant decoding as table/column reads and lists databases correctly.
+
 ## v1.3.3
 
 **中文**

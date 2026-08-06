@@ -391,8 +391,17 @@ impl DbAdapter for MySqlAdapter {
         .map_err(AppError::from)?;
         Ok(rows
             .iter()
-            .filter_map(|r| r.try_get::<String, _>(0).ok())
-            .map(|name| DatabaseInfo { name })
+            // 字节容错取值：information_schema 文本列在二进制照合（如
+            // lower_case_table_names=0 时 schema_name 为 utf8mb3_bin）下会被 sqlx
+            // 报成 BLOB，严格 try_get::<String> 会 Err 而被 .ok() 静默丢弃 → 整列为空。
+            .filter_map(|r| {
+                let name = string_via_bytes(r, 0);
+                if name.is_empty() {
+                    None
+                } else {
+                    Some(DatabaseInfo { name })
+                }
+            })
             .collect())
     }
 
